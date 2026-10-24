@@ -1,39 +1,40 @@
+﻿import apiFetch from "../api";
 /**
- * ReviewWorkspaceView.jsx — Page 6: AI Review Workspace
+ * ReviewWorkspaceView.jsx â€” Page 6: AI Review Workspace
  * ======================================================
  *
  * This is the core operational screen of Inkloom Guardian.
  *
  * WHAT THIS PAGE DOES (beginner-friendly explanation):
- * ────────────────────────────────────────────────────
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * When a content creator submits marketing copy, a Brand Reviewer uses
  * this page to:
  *
  *   1. SELECT a submitted content item from the workspace
  *   2. SELECT which version to review (v1, v2, v3...)
- *   3. CLICK "Run Governance Review" — this calls the backend rule engine
+ *   3. CLICK "Run Governance Review" â€” this calls the backend rule engine
  *      which scans the copy and returns findings (problems and verifications)
  *   4. READ the flagged text highlighted in the left panel (the submitted copy)
  *      with the exact problematic spans visually marked
  *   5. READ the evidence-linked explanations in the right panel (findings)
- *      filtered by severity: CRITICAL → HIGH → MEDIUM → LOW
+ *      filtered by severity: CRITICAL â†’ HIGH â†’ MEDIUM â†’ LOW
  *   6. APPROVE or REJECT or REQUEST CHANGES via the approval decision panel
  *   7. ADD COMMENTS linked to specific findings for collaborative feedback
  *
  * LAYOUT:
- *   ┌─────────────────────────────┬────────────────────────────────┐
- *   │  LEFT PANEL                 │  RIGHT PANEL                   │
- *   │  • Version selector         │  • Review Run Stats            │
- *   │  • Submitted copy text      │  • Findings list (filterable)  │
- *   │  • Highlighted spans        │  • Evidence passages           │
- *   │  • Approval decision panel  │  • Comment threads             │
- *   └─────────────────────────────┴────────────────────────────────┘
+ *   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+ *   â”‚  LEFT PANEL                 â”‚  RIGHT PANEL                   â”‚
+ *   â”‚  â€¢ Version selector         â”‚  â€¢ Review Run Stats            â”‚
+ *   â”‚  â€¢ Submitted copy text      â”‚  â€¢ Findings list (filterable)  â”‚
+ *   â”‚  â€¢ Highlighted spans        â”‚  â€¢ Evidence passages           â”‚
+ *   â”‚  â€¢ Approval decision panel  â”‚  â€¢ Comment threads             â”‚
+ *   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 
-// ─── Severity badge color map ───────────────────────────────────────────────
+// â”€â”€â”€ Severity badge color map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SEVERITY_COLORS = {
   CRITICAL: { bg: '#ff1a1a22', border: '#ff1a1a', text: '#ff4d4d', dot: '#ff1a1a' },
   HIGH:     { bg: '#ff6b0022', border: '#ff6b00', text: '#ff8c33', dot: '#ff6b00' },
@@ -41,15 +42,15 @@ const SEVERITY_COLORS = {
   LOW:      { bg: '#00c85222', border: '#00c852', text: '#33d96a', dot: '#00c852' },
 };
 
-// ─── Verification status config ──────────────────────────────────────────────
+// â”€â”€â”€ Verification status config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const VERIFICATION_STATUS_CONFIG = {
-  SUPPORTED:           { color: '#00c852', icon: '✓', label: 'Supported by Source' },
-  CONTRADICTED:        { color: '#ff4d4d', icon: '✗', label: 'Contradicts Policy' },
-  UNSUPPORTED:         { color: '#ffd700', icon: '⚠', label: 'Unsupported' },
+  SUPPORTED:           { color: '#00c852', icon: 'âœ“', label: 'Supported by Source' },
+  CONTRADICTED:        { color: '#ff4d4d', icon: 'âœ—', label: 'Contradicts Policy' },
+  UNSUPPORTED:         { color: '#ffd700', icon: 'âš ', label: 'Unsupported' },
   UNABLE_TO_DETERMINE: { color: '#8888aa', icon: '?', label: 'Ambiguous' },
 };
 
-// ─── Highlighted text renderer ───────────────────────────────────────────────
+// â”€â”€â”€ Highlighted text renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function HighlightedText({ text, findings, activeFindingId, onFindingClick }) {
   /**
    * This component takes plain text and a list of findings,
@@ -152,7 +153,7 @@ function HighlightedText({ text, findings, activeFindingId, onFindingClick }) {
   );
 }
 
-// ─── Finding Card ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Finding Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function FindingCard({ finding, isActive, onClick }) {
   const colors = SEVERITY_COLORS[finding.severity] || SEVERITY_COLORS.MEDIUM;
   const vsConfig = VERIFICATION_STATUS_CONFIG[finding.verification_status] || VERIFICATION_STATUS_CONFIG.UNABLE_TO_DETERMINE;
@@ -210,7 +211,7 @@ function FindingCard({ finding, isActive, onClick }) {
             padding: '1px 6px',
             borderRadius: '10px',
           }}>
-            ✓ DB-Verified
+            âœ“ DB-Verified
           </span>
         )}
       </div>
@@ -259,7 +260,7 @@ function FindingCard({ finding, isActive, onClick }) {
               marginBottom: '8px',
             }}>
               <div style={{ fontSize: '10px', color: '#00c852', fontWeight: 700, marginBottom: '4px' }}>
-                📄 SOURCE EVIDENCE
+                ðŸ“„ SOURCE EVIDENCE
                 {finding.source_document_code && (
                   <span style={{ color: '#8888aa', fontWeight: 400, marginLeft: '6px' }}>
                     {finding.source_document_code} [{finding.source_version_label}]
@@ -291,7 +292,7 @@ function FindingCard({ finding, isActive, onClick }) {
               padding: '10px',
             }}>
               <div style={{ fontSize: '10px', color: '#8888ff', fontWeight: 700, marginBottom: '4px' }}>
-                💡 SUGGESTED CORRECTION
+                ðŸ’¡ SUGGESTED CORRECTION
               </div>
               <p style={{ fontSize: '12px', color: '#c8c8e0', margin: 0, lineHeight: '1.5' }}>
                 {finding.suggested_correction}
@@ -323,7 +324,7 @@ function FindingCard({ finding, isActive, onClick }) {
   );
 }
 
-// ─── Main Page Component ──────────────────────────────────────────────────────
+// â”€â”€â”€ Main Page Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function ReviewWorkspaceView() {
   const { user, currentWorkspace, token } = useAuth();
 
@@ -353,7 +354,7 @@ export default function ReviewWorkspaceView() {
   const [commentFindingId, setCommentFindingId] = useState('');
 
   const api = useCallback(async (path, options = {}) => {
-    const res = await fetch(`http://localhost:8000/api${path}`, {
+    const res = await apiFetch(`/api${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -549,17 +550,17 @@ export default function ReviewWorkspaceView() {
         button:focus { outline: 2px solid #6464ff; outline-offset: 2px; }
       `}</style>
 
-      {/* ── PAGE HEADER ── */}
+      {/* â”€â”€ PAGE HEADER â”€â”€ */}
       <div style={{ marginBottom: '24px' }}>
         <h1 style={{
           fontSize: '26px', fontWeight: 800, margin: 0,
           background: 'linear-gradient(135deg, #e8e8f8, #8888cc)',
           WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
         }}>
-          ⚖️ AI Review Workspace
+          âš–ï¸ AI Review Workspace
         </h1>
         <p style={{ color: '#8888aa', fontSize: '14px', margin: '6px 0 0' }}>
-          Run deterministic brand governance checks · Review evidence-linked findings · Make binding approval decisions
+          Run deterministic brand governance checks Â· Review evidence-linked findings Â· Make binding approval decisions
         </p>
       </div>
 
@@ -568,14 +569,14 @@ export default function ReviewWorkspaceView() {
           background: 'rgba(255,107,0,0.1)', border: '1px solid rgba(255,107,0,0.3)',
           borderRadius: '12px', padding: '20px', textAlign: 'center', color: '#ff8c33',
         }}>
-          ⚠️ Please select a workspace from the top navigation to continue.
+          âš ï¸ Please select a workspace from the top navigation to continue.
         </div>
       )}
 
       {currentWorkspace && (
         <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr 420px', gap: '20px', alignItems: 'start' }}>
 
-          {/* ────────── LEFT SIDEBAR: Content Item Selector ────────── */}
+          {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ LEFT SIDEBAR: Content Item Selector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div style={{
             background: 'rgba(255,255,255,0.04)',
             border: '1px solid rgba(255,255,255,0.08)',
@@ -628,7 +629,7 @@ export default function ReviewWorkspaceView() {
             ))}
           </div>
 
-          {/* ────────── CENTER PANEL: Copy + Highlights ────────── */}
+          {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CENTER PANEL: Copy + Highlights â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
             {/* Version selector */}
@@ -692,8 +693,8 @@ export default function ReviewWorkspaceView() {
                   }}
                 >
                   {runningReview
-                    ? '⏳ Running Governance Review...'
-                    : '🔍 Run Governance Review'}
+                    ? 'â³ Running Governance Review...'
+                    : 'ðŸ” Run Governance Review'}
                 </button>
               </div>
             )}
@@ -709,7 +710,7 @@ export default function ReviewWorkspaceView() {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                   <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#8888cc', letterSpacing: '0.5px' }}>
-                    SUBMITTED COPY — v{selectedVersion.version_number}
+                    SUBMITTED COPY â€” v{selectedVersion.version_number}
                   </h3>
                   <span style={{ fontSize: '10px', color: '#6666aa', fontFamily: 'monospace' }}>
                     SHA: {selectedVersion.checksum_sha256?.slice(0, 12)}...
@@ -757,15 +758,15 @@ export default function ReviewWorkspaceView() {
                     borderRadius: '8px', padding: '10px', marginBottom: '12px',
                     color: '#00c852', fontSize: '13px', fontWeight: 600,
                   }}>
-                    ✓ {approvalSuccess}
+                    âœ“ {approvalSuccess}
                   </div>
                 )}
 
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                   {[
-                    { value: 'APPROVED', label: '✓ Approve', color: '#00c852' },
-                    { value: 'CHANGES_REQUESTED', label: '↩ Request Changes', color: '#ffd700' },
-                    { value: 'REJECTED', label: '✗ Reject', color: '#ff4d4d' },
+                    { value: 'APPROVED', label: 'âœ“ Approve', color: '#00c852' },
+                    { value: 'CHANGES_REQUESTED', label: 'â†© Request Changes', color: '#ffd700' },
+                    { value: 'REJECTED', label: 'âœ— Reject', color: '#ff4d4d' },
                   ].map(opt => (
                     <button
                       key={opt.value}
@@ -830,7 +831,7 @@ export default function ReviewWorkspaceView() {
                 background: 'rgba(0,200,82,0.08)', border: '1px solid rgba(0,200,82,0.3)',
                 borderRadius: '16px', padding: '16px', textAlign: 'center',
               }}>
-                <div style={{ fontSize: '24px', marginBottom: '4px' }}>✅</div>
+                <div style={{ fontSize: '24px', marginBottom: '4px' }}>âœ…</div>
                 <div style={{ fontWeight: 700, color: '#00c852', fontSize: '15px' }}>Version Approved</div>
                 <div style={{ color: '#8888aa', fontSize: '12px', marginTop: '4px' }}>
                   This exact version snapshot is approved and locked.
@@ -844,7 +845,7 @@ export default function ReviewWorkspaceView() {
                 background: 'rgba(255,77,77,0.1)', border: '1px solid rgba(255,77,77,0.3)',
                 borderRadius: '10px', padding: '12px', color: '#ff4d4d', fontSize: '13px',
               }}>
-                ⚠ {error}
+                âš  {error}
               </div>
             )}
 
@@ -854,7 +855,7 @@ export default function ReviewWorkspaceView() {
                 background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.1)',
                 borderRadius: '16px', color: '#6666aa',
               }}>
-                <div style={{ fontSize: '40px', marginBottom: '12px' }}>📋</div>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>ðŸ“‹</div>
                 <div style={{ fontWeight: 600, fontSize: '15px', marginBottom: '6px', color: '#8888aa' }}>
                   Select a Content Item
                 </div>
@@ -865,7 +866,7 @@ export default function ReviewWorkspaceView() {
             )}
           </div>
 
-          {/* ────────── RIGHT PANEL: Findings + Comments ────────── */}
+          {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ RIGHT PANEL: Findings + Comments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' }}>
 
             {/* Review Run Stats */}
@@ -912,8 +913,8 @@ export default function ReviewWorkspaceView() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: '#8888aa' }}>
-                  <span>📋 {reviewRun.rules_checked_count} rules checked</span>
-                  <span>📚 {reviewRun.sources_consulted_count} sources consulted</span>
+                  <span>ðŸ“‹ {reviewRun.rules_checked_count} rules checked</span>
+                  <span>ðŸ“š {reviewRun.sources_consulted_count} sources consulted</span>
                 </div>
               </div>
             )}
@@ -981,7 +982,7 @@ export default function ReviewWorkspaceView() {
                     background: 'rgba(0,200,82,0.05)', border: '1px dashed rgba(0,200,82,0.2)',
                     borderRadius: '12px',
                   }}>
-                    <div style={{ fontSize: '28px', marginBottom: '8px' }}>✅</div>
+                    <div style={{ fontSize: '28px', marginBottom: '8px' }}>âœ…</div>
                     <div style={{ fontWeight: 600, color: '#00c852' }}>No findings for this filter</div>
                     <div style={{ fontSize: '12px', marginTop: '4px' }}>All checks passed at this severity level.</div>
                   </div>
@@ -998,14 +999,14 @@ export default function ReviewWorkspaceView() {
               </div>
             )}
 
-            {/* Empty state — no review run yet */}
+            {/* Empty state â€” no review run yet */}
             {!reviewRun && selectedVersion && (
               <div style={{
                 textAlign: 'center', padding: '40px 20px',
                 background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)',
                 borderRadius: '16px', color: '#6666aa',
               }}>
-                <div style={{ fontSize: '36px', marginBottom: '10px' }}>🔬</div>
+                <div style={{ fontSize: '36px', marginBottom: '10px' }}>ðŸ”¬</div>
                 <div style={{ fontWeight: 600, fontSize: '14px', color: '#8888aa', marginBottom: '6px' }}>
                   No review yet
                 </div>
@@ -1015,7 +1016,7 @@ export default function ReviewWorkspaceView() {
               </div>
             )}
 
-            {/* ── Comment Thread ── */}
+            {/* â”€â”€ Comment Thread â”€â”€ */}
             {selectedVersion && (
               <div style={{
                 background: 'rgba(255,255,255,0.04)',
@@ -1023,7 +1024,7 @@ export default function ReviewWorkspaceView() {
                 borderRadius: '16px', padding: '16px',
               }}>
                 <h3 style={{ margin: '0 0 12px', fontSize: '13px', fontWeight: 700, color: '#8888cc', letterSpacing: '0.5px' }}>
-                  💬 REVIEW COMMENTS
+                  ðŸ’¬ REVIEW COMMENTS
                 </h3>
 
                 {comments.length === 0 && (
@@ -1076,7 +1077,7 @@ export default function ReviewWorkspaceView() {
                     <option value="">General comment (no specific finding)</option>
                     {allFindings.map(f => (
                       <option key={f.id} value={f.id}>
-                        [{f.severity}] {f.category} — "{f.flagged_text.slice(0, 40)}..."
+                        [{f.severity}] {f.category} â€” "{f.flagged_text.slice(0, 40)}..."
                       </option>
                     ))}
                   </select>
@@ -1121,3 +1122,5 @@ export default function ReviewWorkspaceView() {
     </div>
   );
 }
+
+

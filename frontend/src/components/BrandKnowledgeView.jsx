@@ -1,3 +1,4 @@
+﻿import apiFetch from "../api";
 import React, { useState, useEffect } from 'react';
 import { 
   BookOpen, 
@@ -80,9 +81,9 @@ export default function BrandKnowledgeView() {
     try {
       const headers = { 'Authorization': `Token ${token}` };
       const [rulesRes, claimsRes, sourcesRes] = await Promise.all([
-        fetch(`/api/workspaces/${wsId}/rules/`, { headers }),
-        fetch(`/api/workspaces/${wsId}/claims/`, { headers }),
-        fetch(`/api/workspaces/${wsId}/sources/`, { headers }),
+        apiFetch(`/api/workspaces/${wsId}/rules/`, { headers }),
+        apiFetch(`/api/workspaces/${wsId}/claims/`, { headers }),
+        apiFetch(`/api/workspaces/${wsId}/sources/`, { headers }),
       ]);
 
       if (rulesRes.ok) {
@@ -107,7 +108,7 @@ export default function BrandKnowledgeView() {
   const handleCreateRule = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`/api/workspaces/${currentWorkspace.workspace_id}/rules/`, {
+      const res = await apiFetch(`/api/workspaces/${currentWorkspace.workspace_id}/rules/`, {
         method: 'POST',
         headers: {
           'Authorization': `Token ${token}`,
@@ -138,7 +139,7 @@ export default function BrandKnowledgeView() {
   const handleCreateClaim = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`/api/workspaces/${currentWorkspace.workspace_id}/claims/`, {
+      const res = await apiFetch(`/api/workspaces/${currentWorkspace.workspace_id}/claims/`, {
         method: 'POST',
         headers: {
           'Authorization': `Token ${token}`,
@@ -168,7 +169,7 @@ export default function BrandKnowledgeView() {
   const handleCreateSource = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`/api/workspaces/${currentWorkspace.workspace_id}/sources/`, {
+      const res = await apiFetch(`/api/workspaces/${currentWorkspace.workspace_id}/sources/`, {
         method: 'POST',
         headers: {
           'Authorization': `Token ${token}`,
@@ -779,3 +780,4 @@ export default function BrandKnowledgeView() {
     </div>
   );
 }
+

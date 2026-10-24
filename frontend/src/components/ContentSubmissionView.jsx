@@ -1,3 +1,4 @@
+﻿import apiFetch from "../api";
 import React, { useState } from 'react';
 import { 
   Send, 
@@ -36,7 +37,7 @@ export default function ContentSubmissionView({ onSubmitted }) {
       setTitle('EcoVolt Verified Energy Copy');
       setDescription('Approved web landing page copy');
       setRawText(
-        'Take control of your home utility costs with EcoVolt™ smart battery storage. ' +
+        'Take control of your home utility costs with EcoVoltâ„¢ smart battery storage. ' +
         'Laboratory benchmark trials confirm homeowners save up to 20% on annual energy consumption ' +
         'when paired with our solar storage inverter. *Results vary by insulation and local utility rates.'
       );
@@ -70,7 +71,7 @@ export default function ContentSubmissionView({ onSubmitted }) {
         formData.append('image_file', imageFile);
       }
 
-      const res = await fetch(`/api/workspaces/${currentWorkspace.workspace_id}/content/`, {
+      const res = await apiFetch(`/api/workspaces/${currentWorkspace.workspace_id}/content/`, {
         method: 'POST',
         headers: {
           'Authorization': `Token ${token}`
@@ -124,21 +125,21 @@ export default function ContentSubmissionView({ onSubmitted }) {
             onClick={() => loadDemoSample('ecovolt_problematic')}
             className="px-3 py-1.5 rounded-lg border border-red-800/60 bg-red-950/30 text-red-300 hover:bg-red-900/40 transition cursor-pointer"
           >
-            ⚡ EcoVolt Problematic (Exaggerated "50% guaranteed")
+            âš¡ EcoVolt Problematic (Exaggerated "50% guaranteed")
           </button>
           <button
             type="button"
             onClick={() => loadDemoSample('ecovolt_compliant')}
             className="px-3 py-1.5 rounded-lg border border-emerald-800/60 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/40 transition cursor-pointer"
           >
-            ✓ EcoVolt Compliant ("Save up to 20%")
+            âœ“ EcoVolt Compliant ("Save up to 20%")
           </button>
           <button
             type="button"
             onClick={() => loadDemoSample('purenest_problematic')}
             className="px-3 py-1.5 rounded-lg border border-amber-800/60 bg-amber-950/30 text-amber-300 hover:bg-amber-900/40 transition cursor-pointer"
           >
-            🌿 PureNest Problematic ("100% chemical-free")
+            ðŸŒ¿ PureNest Problematic ("100% chemical-free")
           </button>
         </div>
       </div>
@@ -203,7 +204,7 @@ export default function ContentSubmissionView({ onSubmitted }) {
               Marketing Copy Text <span className="text-red-400">*</span>
             </label>
             <span className="text-[11px] text-slate-500 font-mono">
-              {wordCount} words • {charCount} chars
+              {wordCount} words â€¢ {charCount} chars
             </span>
           </div>
 
@@ -264,3 +265,4 @@ export default function ContentSubmissionView({ onSubmitted }) {
     </div>
   );
 }
+

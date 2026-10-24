@@ -1,3 +1,4 @@
+﻿import apiFetch from "../api";
 import React, { useState, useEffect } from 'react';
 import { Briefcase, Users, FileText, CheckCircle2, ShieldCheck, Plus, AlertCircle, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -23,7 +24,7 @@ export default function WorkspacesView() {
   const fetchWorkspaces = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/workspaces/', {
+      const res = await apiFetch('/api/workspaces/', {
         headers: { 'Authorization': `Token ${token}` }
       });
       if (res.ok) {
@@ -40,7 +41,7 @@ export default function WorkspacesView() {
   const fetchMembers = async (wsId) => {
     setMembersLoading(true);
     try {
-      const res = await fetch(`/api/workspaces/${wsId}/members/`, {
+      const res = await apiFetch(`/api/workspaces/${wsId}/members/`, {
         headers: { 'Authorization': `Token ${token}` }
       });
       if (res.ok) {
@@ -155,7 +156,7 @@ export default function WorkspacesView() {
           <div className="flex items-center space-x-2">
             <Users className="w-5 h-5 text-cyan-400" />
             <h3 className="font-semibold text-white">
-              {currentWorkspace ? `${currentWorkspace.workspace_name} — Member Roles` : 'Workspace Members'}
+              {currentWorkspace ? `${currentWorkspace.workspace_name} â€” Member Roles` : 'Workspace Members'}
             </h3>
           </div>
           <span className="text-xs text-slate-400">
@@ -213,3 +214,4 @@ export default function WorkspacesView() {
     </div>
   );
 }
+

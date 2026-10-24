@@ -1,3 +1,4 @@
+﻿import apiFetch from "../api";
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
@@ -18,7 +19,7 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        const res = await fetch('/api/auth/me/', {
+        const res = await apiFetch('/api/auth/me/', {
           headers: {
             'Authorization': `Token ${token}`,
             'Content-Type': 'application/json'
@@ -50,7 +51,7 @@ export function AuthProvider({ children }) {
   }, [token]);
 
   const login = async (username, password) => {
-    const res = await fetch('/api/auth/login/', {
+    const res = await apiFetch('/api/auth/login/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -75,7 +76,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     if (token) {
       try {
-        await fetch('/api/auth/logout/', {
+        await apiFetch('/api/auth/logout/', {
           method: 'POST',
           headers: {
             'Authorization': `Token ${token}`,
@@ -119,3 +120,4 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
+

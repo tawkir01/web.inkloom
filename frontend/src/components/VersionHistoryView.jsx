@@ -1,3 +1,4 @@
+﻿import apiFetch from "../api";
 import React, { useState, useEffect } from 'react';
 import { 
   History, 
@@ -40,7 +41,7 @@ export default function VersionHistoryView() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/workspaces/${currentWorkspace.workspace_id}/content/`, {
+      const res = await apiFetch(`/api/workspaces/${currentWorkspace.workspace_id}/content/`, {
         headers: { 'Authorization': `Token ${token}` }
       });
       if (res.ok) {
@@ -60,7 +61,7 @@ export default function VersionHistoryView() {
   const fetchItemDetail = async (itemId) => {
     setDetailLoading(true);
     try {
-      const res = await fetch(`/api/content/${itemId}/`, {
+      const res = await apiFetch(`/api/content/${itemId}/`, {
         headers: { 'Authorization': `Token ${token}` }
       });
       if (res.ok) {
@@ -87,7 +88,7 @@ export default function VersionHistoryView() {
     if (!itemDetail) return;
     setRevisionLoading(true);
     try {
-      const res = await fetch(`/api/content/${itemDetail.id}/versions/`, {
+      const res = await apiFetch(`/api/content/${itemDetail.id}/versions/`, {
         method: 'POST',
         headers: {
           'Authorization': `Token ${token}`,
@@ -181,7 +182,7 @@ export default function VersionHistoryView() {
                     </div>
                     <p className="text-xs text-slate-400 mt-1 line-clamp-1">{item.description || 'No description provided.'}</p>
                     <div className="text-[10px] text-slate-500 mt-2 font-mono">
-                      By @{item.created_by?.username} • {new Date(item.created_at).toLocaleDateString()}
+                      By @{item.created_by?.username} â€¢ {new Date(item.created_at).toLocaleDateString()}
                     </div>
                   </button>
                 );
@@ -202,7 +203,7 @@ export default function VersionHistoryView() {
                 <div>
                   <h3 className="text-xl font-bold text-white">{itemDetail.title}</h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Total Revisions: {itemDetail.versions?.length} • Workspace: {currentWorkspace?.workspace_name}
+                    Total Revisions: {itemDetail.versions?.length} â€¢ Workspace: {currentWorkspace?.workspace_name}
                   </p>
                 </div>
 
@@ -334,3 +335,4 @@ export default function VersionHistoryView() {
     </div>
   );
 }
+
