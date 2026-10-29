@@ -26,6 +26,8 @@ import ReviewWorkspaceView from './components/ReviewWorkspaceView';
 function MainApp() {
   const { user, currentWorkspace, isAuthenticated, loading } = useAuth();
   const [activePage, setActivePage] = useState('dashboard');
+  const canSubmitContent = ['CONTENT_CREATOR', 'AGENCY_ADMIN'].includes(currentWorkspace?.role);
+  const page = activePage === 'submit' && !canSubmitContent ? 'dashboard' : activePage;
 
   if (loading) {
     return (
@@ -44,19 +46,19 @@ function MainApp() {
 
   return (
     <div className="min-h-screen bg-[#070B14] text-slate-100 flex flex-col font-sans selection:bg-violet-600 selection:text-white">
-      <Navbar activePage={activePage} setActivePage={setActivePage} />
+      <Navbar activePage={page} setActivePage={setActivePage} />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 space-y-8">
         {/* Render Page Based on Active Navigation */}
-        {activePage === 'workspaces' && <WorkspacesView />}
-        {activePage === 'knowledge' && <BrandKnowledgeView />}
-        {activePage === 'submit' && (
+        {page === 'workspaces' && <WorkspacesView />}
+        {page === 'knowledge' && <BrandKnowledgeView />}
+        {page === 'submit' && (
           <ContentSubmissionView onSubmitted={() => setActivePage('versions')} />
         )}
-        {activePage === 'versions' && <VersionHistoryView />}
-        {activePage === 'review' && <ReviewWorkspaceView />}
+        {page === 'versions' && <VersionHistoryView />}
+        {page === 'review' && <ReviewWorkspaceView />}
 
-        {activePage === 'dashboard' && (
+        {page === 'dashboard' && (
           <div className="space-y-8">
             {/* Phase 3 Welcome Hero */}
             <div className="relative overflow-hidden rounded-2xl border border-slate-800/80 bg-gradient-to-br from-[#0D1527] via-[#090E1C] to-[#070B14] p-8 shadow-2xl">
@@ -65,7 +67,7 @@ function MainApp() {
               <div className="relative z-10 max-w-3xl space-y-3">
                 <div className="inline-flex items-center space-x-2 text-xs font-semibold px-3 py-1 rounded-full bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Phase 6 — AI Review Workspace & Evidence-Linked Findings Active</span>
+                  <span>Phase 6 — Governance Review & Evidence-Linked Findings Active</span>
                 </div>
 
                 <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-white leading-tight">
@@ -182,7 +184,7 @@ function MainApp() {
       <footer className="border-t border-slate-800/80 bg-[#0B1120] px-6 py-4 mt-auto text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>Inkloom Guardian © 2026. Built with Django REST Framework, React, Vite & Tailwind CSS.</span>
-          <span className="text-slate-400 font-mono">Phase 6: AI Review Workspace & Evidence-Linked Findings Complete</span>
+          <span className="text-slate-400 font-mono">Phase 6: Governance Review & Evidence-Linked Findings Complete</span>
         </div>
       </footer>
     </div>
