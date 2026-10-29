@@ -219,7 +219,29 @@ class Command(BaseCommand):
             }
         )
 
-        # 8. Log initial Audit Event
+        # 8. Add shared review-queue content so reviewer and manager demos are usable.
+        demo_item, _ = ContentItem.objects.get_or_create(
+            workspace=ecovolt,
+            title="EcoVolt Home Energy Copy Review",
+            defaults={
+                "description": "Fictional demo content for reviewer and account-manager workflows.",
+                "created_by": creator_user,
+            }
+        )
+        ContentVersion.objects.get_or_create(
+            content_item=demo_item,
+            version_number=1,
+            defaults={
+                "raw_text": (
+                    "EcoVolt™ helps make everyday home management simpler. "
+                    "Explore practical ideas for a more comfortable home."
+                ),
+                "status": ContentVersion.Status.SUBMITTED,
+                "created_by": creator_user,
+            }
+        )
+
+        # 9. Log initial Audit Event
         AuditEvent.objects.create(
             workspace=ecovolt,
             user=admin_user,

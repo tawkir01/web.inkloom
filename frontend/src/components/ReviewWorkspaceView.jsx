@@ -65,8 +65,9 @@ function HighlightedText({ text, findings, activeFindingId, onFindingClick }) {
    *  4. When we hit end_char, switch back to normal mode
    */
   if (!text) return <p style={{ color: '#8888aa', fontStyle: 'italic' }}>No text available.</p>;
+   const characters = Array.from(text);
 
-  // Build a list of segments: { text, finding? }
+   // Build a list of segments: { text, finding? }
   const blockFindings = findings.filter(
     f => f.start_char != null && f.end_char != null && f.start_char < f.end_char
   );
@@ -80,23 +81,23 @@ function HighlightedText({ text, findings, activeFindingId, onFindingClick }) {
 
   for (const f of sorted) {
     const start = Math.max(pos, f.start_char);
-    const end = Math.min(text.length, f.end_char);
-    if (start >= text.length) break;
+    const end = Math.min(characters.length, f.end_char);
+    if (start >= characters.length) break;
 
     // Unchanged text before this finding
     if (start > pos) {
-      segments.push({ text: text.slice(pos, start), finding: null });
+      segments.push({ text: characters.slice(pos, start).join(''), finding: null });
     }
 
     if (end > start) {
-      segments.push({ text: text.slice(start, end), finding: f });
+      segments.push({ text: characters.slice(start, end).join(''), finding: f });
       pos = end;
     }
   }
 
   // Remainder after all findings
-  if (pos < text.length) {
-    segments.push({ text: text.slice(pos), finding: null });
+  if (pos < characters.length) {
+    segments.push({ text: characters.slice(pos).join(''), finding: null });
   }
 
   // If no findings overlap this text, just render it plain
@@ -260,10 +261,19 @@ function FindingCard({ finding, isActive, onClick }) {
               marginBottom: '8px',
             }}>
               <div style={{ fontSize: '10px', color: '#00c852', fontWeight: 700, marginBottom: '4px' }}>
-                ðŸ“„ SOURCE EVIDENCE
+                ðŸ“„ {finding.source_version
+                  ? 'SOURCE EVIDENCE'
+                  : finding.approved_claim_title
+                    ? 'APPROVED CLAIM WORDING'
+                    : 'EVIDENCE'}
                 {finding.source_document_code && (
                   <span style={{ color: '#8888aa', fontWeight: 400, marginLeft: '6px' }}>
-                    {finding.source_document_code} [{finding.source_version_label}]
+                    {finding.source_document_code}: {finding.source_document_title} [{finding.source_version_label}]
+                  </span>
+                )}
+                {finding.source_passage_id && (
+                  <span style={{ color: '#8888aa', fontWeight: 400, marginLeft: '6px' }}>
+                    Passage: {finding.source_passage_id}
                   </span>
                 )}
                 {finding.brand_rule_name && (
@@ -327,6 +337,7 @@ function FindingCard({ finding, isActive, onClick }) {
 // â”€â”€â”€ Main Page Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function ReviewWorkspaceView() {
   const { user, currentWorkspace, token } = useAuth();
+  const canApprove = ['BRAND_REVIEWER', 'AGENCY_ADMIN'].includes(currentWorkspace?.role);
 
   // Data state
   const [contentItems, setContentItems] = useState([]);
@@ -503,6 +514,17 @@ export default function ReviewWorkspaceView() {
     const typeOk = findingTypeFilter === 'ALL' || f.finding_type === findingTypeFilter;
     return sevOk && typeOk;
   });
+  const ocrText = selectedVersion?.extracted_ocr_text || '';
+  const ocrOffset = Array.from(selectedVersion?.raw_text || '').length + 1;
+  const ocrEnd = ocrOffset + Array.from(ocrText).length;
+  const ocrFindings = filteredFindings.flatMap(f => {
+    if (f.start_char == null || f.end_char == null) return [];
+    const start = Math.max(f.start_char, ocrOffset);
+    const end = Math.min(f.end_char, ocrEnd);
+    return end > start
+      ? [{ ...f, start_char: start - ocrOffset, end_char: end - ocrOffset }]
+      : [];
+  });
 
   // Stat counts
   const counts = {
@@ -557,7 +579,7 @@ export default function ReviewWorkspaceView() {
           background: 'linear-gradient(135deg, #e8e8f8, #8888cc)',
           WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
         }}>
-          âš–ï¸ AI Review Workspace
+          âš–ï¸ Governance Review Workspace
         </h1>
         <p style={{ color: '#8888aa', fontSize: '14px', margin: '6px 0 0' }}>
           Run deterministic brand governance checks Â· Review evidence-linked findings Â· Make binding approval decisions
@@ -729,16 +751,19 @@ export default function ReviewWorkspaceView() {
                     <div style={{ fontSize: '11px', color: '#8888aa', marginBottom: '8px', fontWeight: 700 }}>
                       OCR EXTRACTED TEXT
                     </div>
-                    <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '12px', color: '#9999bb', margin: 0 }}>
-                      {selectedVersion.extracted_ocr_text}
-                    </pre>
+                    <HighlightedText
+                      text={selectedVersion.extracted_ocr_text}
+                      findings={ocrFindings}
+                      activeFindingId={activeFindingId}
+                      onFindingClick={setActiveFindingId}
+                    />
                   </div>
                 )}
               </div>
             )}
 
             {/* Approval decision panel */}
-            {selectedVersion && selectedVersion.status !== 'APPROVED' && (
+            {selectedVersion && selectedVersion.status !== 'APPROVED' && canApprove && (
               <div style={{
                 background: 'rgba(255,255,255,0.04)',
                 border: '1px solid rgba(255,255,255,0.08)',
@@ -759,6 +784,20 @@ export default function ReviewWorkspaceView() {
                     color: '#00c852', fontSize: '13px', fontWeight: 600,
                   }}>
                     âœ“ {approvalSuccess}
+                  </div>
+                )}
+
+                {selectedVersion && selectedVersion.status !== 'APPROVED' && !canApprove && (
+                  <div style={{
+                    background: 'rgba(255,215,0,0.05)',
+                    border: '1px solid rgba(255,215,0,0.18)',
+                    borderRadius: '12px',
+                    padding: '12px',
+                    color: '#b8b08a',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                  }}>
+                    You can review findings and comment on this version. Approval decisions are available to Brand Reviewers and Agency Administrators.
                   </div>
                 )}
 
@@ -915,6 +954,16 @@ export default function ReviewWorkspaceView() {
                 <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: '#8888aa' }}>
                   <span>ðŸ“‹ {reviewRun.rules_checked_count} rules checked</span>
                   <span>ðŸ“š {reviewRun.sources_consulted_count} sources consulted</span>
+                </div>
+                <div style={{ marginTop: '12px', fontSize: '11px', color: '#aaaacc' }}>
+                  AI analysis: {reviewRun.ai_status || 'NOT_CONFIGURED'}
+                  {reviewRun.ai_provider && ` · ${reviewRun.ai_provider}`}
+                  {reviewRun.ai_model && ` / ${reviewRun.ai_model}`}
+                  {reviewRun.ai_error_message && (
+                    <p style={{ margin: '6px 0 0', color: '#ffb36b' }}>
+                      {reviewRun.ai_error_message}
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -1122,5 +1171,3 @@ export default function ReviewWorkspaceView() {
     </div>
   );
 }
-
-

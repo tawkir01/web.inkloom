@@ -4,11 +4,24 @@
 
 **Inkloom Guardian** is an enterprise-grade full-stack brand governance and content trust platform. It enables marketing agencies to verify promotional text and visual media before publication against approved brand guidelines, validated source documents, registered claims, and prohibited terminology.
 
-Unlike simplistic AI wrappers that hallucinate answers, **Inkloom Guardian is built on an evidence-first architecture**:
-1. Every claim is checked against stored, client-specific database records.
-2. AI-generated citations and quotations are strictly validated against stored source passages.
+**Inkloom Guardian currently runs deterministic brand-rule checks and conservative, evidence-linked claim checks**:
+1. Checks use stored, client-specific rules, approved claims, and source passages.
+2. Any source quotation returned by the deterministic engine comes from a stored source record.
 3. Every human approval or rejection is bound to an immutable content version snapshot.
 4. Multi-client workspaces are strictly isolated at the database and query levels.
+
+AI analysis is optional. With `AI_PROVIDER=mock` or no API key, reviews run deterministic checks only. When configured for `openai`, `anthropic`, or `gemini`, the backend can send submitted text and current workspace-approved claims and source passages to that provider. Provider usage can incur charges. The deterministic layer remains independent, and a provider failure is reported separately without hiding successful deterministic results. Word overlap is not treated as proof that a claim is supported; the pipeline returns `UNABLE_TO_DETERMINE` when source wording only overlaps without an exact passage match.
+
+### Evidence-linked claim review
+
+1. Register a source document in the selected client workspace and add an approved, currently valid version with its evidence passages.
+2. Register the approved claim and link it to the supporting source version.
+3. Submit copy and run a governance review. Claim findings include the source document code, title, version, and a stored passage; they explain the issue and suggest the approved wording or required qualifier.
+4. Revise the copy and run the review again on the new content version before requesting approval.
+
+Brand rules, claims, source documents, and content history are scoped to the selected workspace. Source versions are append-only in the application and cannot be deleted while preserving an audit trail. Each finding stores the exact source document code, title, and version label used at review time, alongside its cited passage; later document metadata changes do not rewrite previous findings.
+
+Source links are optional for older claims. When no current source version is linked, findings cite the approved claim statement instead of presenting an unverified document passage as evidence.
 
 ---
 
@@ -40,12 +53,12 @@ The platform is designed across four decoupled, high-assurance layers:
 └──────────────────────────────┬──────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────┐
-│           4. AI & EVIDENCE VERIFICATION ENGINE              │
+│          4. OPTIONAL AI & EVIDENCE VERIFICATION              │
 │  - Stage A: Normalisation & positional sentence splitting    │
 │  - Stage B: Deterministic regex brand rule & term checks     │
 │  - Stage C: Client-isolated source evidence retrieval       │
-│  - Stage D: Structured grounded AI analysis                 │
-│  - Stage E: Source ID & citation quotation validation        │
+│  - Stage D: Conservative source-text comparison              │
+│  - Stage E: Source ID & quotation validation                 │
 │  - Stage F: Status assignment (SUPPORTED, CONTRADICTED...)  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -91,7 +104,7 @@ inkloom web/
 | **Frontend** | Renders responsive UI, captures user input, provides interactive review interface, side-by-side claim diffs, visual feedback. | React 19, Vite 8, Tailwind CSS v4, Lucide React |
 | **Backend API** | Enforces business rules, authentication, permissions per workspace, validates data, runs verification pipelines, generates immutable snapshots. | Django 6, Django REST Framework, django-cors-headers |
 | **Database** | Stores organisations, client workspaces, memberships, rules, claims, sources, content items, immutable versions, findings, approvals, and audit events. | PostgreSQL / SQLite, Django ORM |
-| **Evidence & AI Layer** | Pre-processes text, executes deterministic checks, retrieves evidence within the active workspace, invokes AI providers with structured output, verifies citations. | Python regex, Provider Adapters (Gemini / OpenAI / Anthropic / Mock) |
+| **Evidence layer** | Executes deterministic checks, retrieves workspace-scoped evidence, and avoids treating lexical overlap as proof. | Python regex, Django ORM |
 
 ---
 
@@ -115,7 +128,9 @@ inkloom web/
    ```bash
    cd backend
    python manage.py migrate
+   python manage.py seed_demo_data
    ```
+   The seed command creates the fictional demo role accounts, workspaces, and a sample EcoVolt review item. It is safe to run again to restore demo data.
 
 3. **Install Frontend Dependencies**:
    ```bash
@@ -145,5 +160,33 @@ inkloom web/
      - Open **Run and Debug** and select **Django: Run backend**.
      - This configuration uses the workspace `venv` interpreter; press **F5** to start the API.
      - Start the frontend separately with `npm run dev` from the `frontend` directory.
-   - Open browser at `http://localhost:5173`.
+   - Open browser at `http://localhost:5173/stackinkloom/`.
    - The frontend automatically proxies `/api/*` requests to `http://127.0.0.1:8000`.
+
+### Demo role access
+
+The login screen's demo role cards sign in directly. Each role uses the same workspace interface, with actions shown according to its permissions:
+- **Content Creator** and **Agency Admin** can submit content and create revisions.
+- **Brand Reviewer** and **Agency Admin** can record approval decisions.
+- **Account Manager** can follow the shared review queue and add coordination comments, but cannot submit or approve content.
+
+## Environment and production deployment
+
+Copy `.env.example` to `.env` for local development. In production, supply environment variables through the backend host rather than committing a `.env` file:
+
+- Set `DEBUG=False`, a unique strong `SECRET_KEY`, and `ALLOWED_HOSTS` to the backend hostnames.
+- Set `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS` to the actual frontend origin(s). Do not use wildcard origins with credentials.
+- Keep HTTPS enabled. `SECURE_SSL_REDIRECT`, secure cookies, and HSTS default on when `DEBUG=False`; only set `USE_X_FORWARDED_PROTO=True` when the trusted hosting proxy sets that header.
+- Configure database connection variables on the backend host if using PostgreSQL. Never put database credentials or AI keys in `frontend/` or a `VITE_*` variable.
+- `VITE_API_BASE_URL` is a public frontend build-time setting for the backend origin. The existing GitHub Pages base path remains `/stackinkloom/`.
+- `AI_PROVIDER`, `AI_API_KEY`, and `AI_MODEL_NAME` configure optional backend analysis. Supported provider identifiers are `mock`, `openai`, `anthropic`, and `gemini`; use `mock` when no provider call should be made. The OCR setting remains reserved; no OCR adapter is currently configured.
+- Keep `AI_API_KEY` on the backend host only. Live reviews send submitted copy and the active workspace's approved claims and valid evidence passages to the selected provider; review each provider's data-retention and pricing terms before enabling it.
+
+Apply migrations before starting a backend release:
+
+```bash
+cd backend
+python manage.py migrate
+```
+
+Run backend validation from `backend/` with `python manage.py check`, `python manage.py makemigrations --check --dry-run`, and `python manage.py test`. Run frontend validation from `frontend/` with `npm run build` and `npm run lint`.

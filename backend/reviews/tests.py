@@ -1,4 +1,5 @@
 import hashlib
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.db.utils import IntegrityError
@@ -75,6 +76,25 @@ class GovernanceAndReviewSchemaTests(TestCase):
         self.assertEqual(version_1.checksum_sha256, expected_hash)
         self.assertEqual(version_1.status, ContentVersion.Status.SUBMITTED)
 
+    def test_content_version_snapshot_cannot_be_modified(self):
+        item = ContentItem.objects.create(
+            workspace=self.workspace,
+            title="Immutable copy",
+            created_by=self.creator,
+        )
+        version = ContentVersion.objects.create(
+            content_item=item,
+            version_number=1,
+            raw_text="Original submitted copy.",
+            created_by=self.creator,
+        )
+
+        version.raw_text = "Changed copy."
+        with self.assertRaises(ValidationError):
+            version.save()
+
+        version.refresh_from_db()
+        self.assertEqual(version.raw_text, "Original submitted copy.")
     def test_duplicate_version_number_rejected_by_database(self):
         """Database constraint must prevent two versions having the same version_number on an item."""
         item = ContentItem.objects.create(

@@ -15,7 +15,20 @@ class ApprovedClaimAdmin(admin.ModelAdmin):
 
 class SourceDocumentVersionInline(admin.TabularInline):
     model = SourceDocumentVersion
-    extra = 1
+    extra = 0
+    can_delete = False
+    readonly_fields = (
+        'version_label',
+        'full_text_content',
+        'passage_excerpts',
+        'effective_date',
+        'expiration_date',
+        'is_approved',
+        'created_at',
+    )
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 @admin.register(SourceDocument)
 class SourceDocumentAdmin(admin.ModelAdmin):
@@ -24,11 +37,31 @@ class SourceDocumentAdmin(admin.ModelAdmin):
     search_fields = ('document_code', 'title', 'description')
     inlines = [SourceDocumentVersionInline]
 
+    def get_readonly_fields(self, request, obj=None):
+        return ('workspace',) if obj else ()
+
 @admin.register(SourceDocumentVersion)
 class SourceDocumentVersionAdmin(admin.ModelAdmin):
     list_display = ('source_document', 'version_label', 'effective_date', 'expiration_date', 'is_approved', 'created_at')
     list_filter = ('is_approved', 'source_document__workspace')
     search_fields = ('source_document__document_code', 'version_label', 'full_text_content')
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return (
+                'source_document',
+                'version_label',
+                'full_text_content',
+                'passage_excerpts',
+                'effective_date',
+                'expiration_date',
+                'is_approved',
+                'created_at',
+            )
+        return ()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 @admin.register(BrandAsset)
 class BrandAssetAdmin(admin.ModelAdmin):

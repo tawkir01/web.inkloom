@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 
 export default function VersionHistoryView() {
   const { token, currentWorkspace } = useAuth();
+  const canCreateRevision = ['CONTENT_CREATOR', 'AGENCY_ADMIN'].includes(currentWorkspace?.role);
   const [contentItems, setContentItems] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [itemDetail, setItemDetail] = useState(null);
@@ -207,13 +208,15 @@ export default function VersionHistoryView() {
                   </p>
                 </div>
 
-                <button
-                  onClick={handleOpenRevision}
-                  className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-medium text-xs flex items-center space-x-1.5 shadow-lg shadow-violet-600/25 transition cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Spawn Revision (v{(itemDetail.versions?.[0]?.version_number || 1) + 1})</span>
-                </button>
+                {canCreateRevision && (
+                  <button
+                    onClick={handleOpenRevision}
+                    className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-medium text-xs flex items-center space-x-1.5 shadow-lg shadow-violet-600/25 transition cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Spawn Revision (v{(itemDetail.versions?.[0]?.version_number || 1) + 1})</span>
+                  </button>
+                )}
               </div>
 
               {/* Version Snapshots Tree */}
@@ -335,4 +338,3 @@ export default function VersionHistoryView() {
     </div>
   );
 }
-

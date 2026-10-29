@@ -30,11 +30,13 @@ All citations link to real database records — no hallucinated references.
 
 import re
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from dataclasses import dataclass, field
 from governance.models import BrandRule, ApprovedClaim, SourceDocumentVersion
 
 logger = logging.getLogger(__name__)
+_CLAIM_TOKEN_RE = re.compile(r'\d+(?:[,.]\d+)*|[^\W\d_]+|%|°[CF]', re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +63,7 @@ class RawFinding:
     brand_rule_id: Any = None  # UUID of the BrandRule that triggered this (if any)
     approved_claim_id: Any = None  # UUID of the related ApprovedClaim (if any)
     source_version_id: Any = None  # UUID of the SourceDocumentVersion cited (if any)
+    source_passage_id: str = ''
     suggested_correction: str = ''  # Suggested replacement copy
     confidence: float = 1.0       # How confident is this finding (0.0 – 1.0)
     is_citation_validated: bool = False  # True = evidence verified against real DB record
@@ -76,6 +79,10 @@ class EngineResult:
     rules_checked_count: int = 0
     sources_consulted_count: int = 0
     error_message: str = ''
+    ai_provider: str = 'mock'
+    ai_model: str = ''
+    ai_status: str = 'NOT_CONFIGURED'
+    ai_error_message: str = ''
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +100,13 @@ def _find_all_spans(text: str, phrase: str) -> list[tuple[int, int]]:
         → [(11, 21)]   ← positions 11 to 21 in the string
     """
     spans = []
-    # We use \\b word-boundary anchors so we don't match "guarantee" inside "guaranteed"
     try:
-        pattern = re.compile(r'\b' + re.escape(phrase) + r'\b', re.IGNORECASE)
+        left_boundary = r'(?<!\w)' if phrase[0].isalnum() or phrase[0] == '_' else ''
+        right_boundary = r'(?!\w)' if phrase[-1].isalnum() or phrase[-1] == '_' else ''
+        pattern = re.compile(
+            left_boundary + re.escape(phrase) + right_boundary,
+            re.IGNORECASE,
+        )
         for match in pattern.finditer(text):
             spans.append((match.start(), match.end()))
     except re.error:
@@ -110,6 +121,70 @@ def _find_all_spans(text: str, phrase: str) -> list[tuple[int, int]]:
             spans.append((idx, idx + len(lower_phrase)))
             start = idx + 1
     return spans
+
+
+def _find_exact_text_spans(text: str, phrase: str) -> list[tuple[int, int]]:
+    """Find a phrase literally, allowing runs of whitespace to vary."""
+    words = re.split(r'\s+', phrase.strip())
+    if not words or not words[0]:
+        return []
+    pattern = r'(?<!\w)' + r'\s+'.join(re.escape(word) for word in words) + r'(?!\w)'
+    return [
+        (match.start(), match.end())
+        for match in re.finditer(pattern, text, re.IGNORECASE)
+    ]
+
+
+def _claim_tokens(text: str):
+    matches = list(_CLAIM_TOKEN_RE.finditer(text))
+    tokens = []
+    index = 0
+    while index < len(matches):
+        token = matches[index].group().casefold()
+        next_token = matches[index + 1].group().casefold() if index + 1 < len(matches) else ''
+        if (token, next_token) in {('up', 'to'), ('at', 'least')}:
+            index += 2
+            continue
+        match = matches[index]
+        tokens.append((token, match.start(), match.end()))
+        index += 1
+    return tokens
+
+
+def _numeric_claim_matches(text: str, permitted_statement: str):
+    """Match a claim's exact ordered wording while treating its quantity as variable."""
+    claim_tokens = _claim_tokens(permitted_statement)
+    content_tokens = _claim_tokens(text)
+    number_pattern = re.compile(r'^\d+(?:[,.]\d+)*$')
+    if not any(number_pattern.fullmatch(token[0]) for token in claim_tokens):
+        return []
+
+    matches = []
+    for offset in range(len(content_tokens) - len(claim_tokens) + 1):
+        window = content_tokens[offset:offset + len(claim_tokens)]
+        if not all(
+            number_pattern.fullmatch(claim_token[0])
+            or claim_token[0] == content_token[0]
+            for claim_token, content_token in zip(claim_tokens, window)
+        ):
+            continue
+
+        quantity_changed = False
+        for claim_token, content_token in zip(claim_tokens, window):
+            if not number_pattern.fullmatch(claim_token[0]):
+                continue
+            try:
+                claim_value = Decimal(claim_token[0].replace(',', ''))
+                content_value = Decimal(content_token[0].replace(',', ''))
+            except InvalidOperation:
+                quantity_changed = (
+                    quantity_changed or claim_token[0] != content_token[0]
+                )
+            else:
+                quantity_changed = quantity_changed or claim_value != content_value
+
+        matches.append((window[0][1], window[-1][2], quantity_changed))
+    return matches
 
 
 def _text_contains(text: str, phrase: str) -> bool:
@@ -180,7 +255,7 @@ def run_brand_rule_checks(text: str, workspace) -> tuple[list[RawFinding], int]:
                 findings.append(RawFinding(
                     finding_type='DETERMINISTIC_RULE',
                     category=f"Brand Rule: {rule.get_rule_type_display()}",
-                    flagged_text='[Entire submission — missing required term]',
+                    flagged_text=text,
                     start_char=0,
                     end_char=len(text),
                     severity=rule.severity,
@@ -239,9 +314,46 @@ def run_claim_verification(text: str, workspace) -> tuple[list[RawFinding], int]
     sources_consulted = 0
 
     # ---- A) ApprovedClaim Checks ----
-    active_claims = ApprovedClaim.objects.filter(workspace=workspace, is_active=True)
+    active_claims = ApprovedClaim.objects.filter(
+        workspace=workspace,
+        is_active=True,
+    ).select_related('source_version__source_document')
+
+    def claim_evidence(claim):
+        source_version = claim.source_version
+        if not source_version:
+            return None, claim.permitted_statement, ''
+        if (
+            source_version.source_document.workspace_id != workspace.id
+            or not source_version.is_currently_valid()
+        ):
+            return None, '', ''
+
+        passages = source_version.passage_excerpts
+        if isinstance(passages, list) and passages:
+            for passage in passages:
+                passage_text = passage.get('text', '') if isinstance(passage, dict) else ''
+                if passage_text and _find_exact_text_spans(
+                    passage_text,
+                    claim.permitted_statement,
+                ):
+                    passage_id = passage.get('passage_id', '')
+                    if not isinstance(passage_id, str) or len(passage_id) > 128:
+                        passage_id = ''
+                    return source_version, passage_text, passage_id
+            return None, '', ''
+
+        full_text = source_version.full_text_content
+        spans = _find_exact_text_spans(full_text, claim.permitted_statement)
+        if spans:
+            start, end = spans[0]
+            quote_start = max(0, start - 120)
+            quote_end = min(len(full_text), end + 120)
+            return source_version, full_text[quote_start:quote_end], ''
+        return None, '', ''
 
     for claim in active_claims:
+        claim_source_version, claim_source_quote, claim_source_passage_id = claim_evidence(claim)
 
         # Check for disallowed variations (exaggerated wording the legal team banned)
         if claim.disallowed_variations:
@@ -267,52 +379,74 @@ def run_claim_verification(text: str, workspace) -> tuple[list[RawFinding], int]
                             f"'{claim.claim_title}'. "
                             f"Approved statement: \"{claim.permitted_statement}\""
                         ),
-                        quoted_passage=claim.permitted_statement,
+                        quoted_passage=claim_source_quote,
                         approved_claim_id=claim.id,
+                        source_version_id=claim_source_version.id if claim_source_version else None,
+                        source_passage_id=claim_source_passage_id,
                         suggested_correction=claim.permitted_statement,
                         confidence=0.95,
                         is_citation_validated=True,
                     ))
 
-        # Check if a REQUIRED qualifier is missing while the claim keyword appears
-        # Strategy: if any word from the permitted_statement appears in the text,
-        # check that required qualifiers are also present.
-        if claim.required_qualifiers and claim.permitted_statement:
-            # Extract key distinctive words from the permitted_statement (>= 5 chars)
-            claim_keywords = [
-                w.strip('.,;:!?()"\'')
-                for w in claim.permitted_statement.split()
-                if len(w.strip('.,;:!?()"\'')) >= 5
-            ]
-            # If any of these keywords appears in the text, the qualifier must also appear
-            text_mentions_claim = any(_text_contains(text, kw) for kw in claim_keywords[:5])
+        numeric_matches = _numeric_claim_matches(text, claim.permitted_statement)
+        for start, end, quantity_changed in numeric_matches:
+            if quantity_changed:
+                findings.append(RawFinding(
+                    finding_type='EVIDENCE_CLAIM',
+                    category='Exaggerated Numerical Claim',
+                    flagged_text=text[start:end],
+                    start_char=start,
+                    end_char=end,
+                    severity='HIGH',
+                    verification_status='CONTRADICTED',
+                    explanation=(
+                        f"The submitted quantity differs from the approved claim "
+                        f"'{claim.claim_title}'. Approved wording: "
+                        f"\"{claim.permitted_statement}\""
+                    ),
+                    quoted_passage=claim_source_quote,
+                    approved_claim_id=claim.id,
+                    source_version_id=claim_source_version.id if claim_source_version else None,
+                    source_passage_id=claim_source_passage_id,
+                    suggested_correction=claim.permitted_statement,
+                    confidence=0.95,
+                    is_citation_validated=bool(claim_source_version),
+                ))
 
-            if text_mentions_claim:
+        # Check required qualifiers only when the permitted wording is present.
+        if claim.required_qualifiers and claim.permitted_statement:
+            claim_spans = _find_exact_text_spans(text, claim.permitted_statement)
+            if not claim_spans:
+                claim_spans = [(start, end) for start, end, _ in numeric_matches]
+            if claim_spans:
                 qualifiers = [
                     q.strip()
                     for q in re.split(r'[,\n]+', claim.required_qualifiers)
                     if q.strip()
                 ]
                 for qualifier in qualifiers:
-                    if not _text_contains(text, qualifier):
-                        findings.append(RawFinding(
-                            finding_type='EVIDENCE_CLAIM',
-                            category='Missing Required Qualifier',
-                            flagged_text='[Entire submission — missing qualifier]',
-                            start_char=0,
-                            end_char=len(text),
-                            severity='HIGH',
-                            verification_status='UNSUPPORTED',
-                            explanation=(
-                                f"The content appears to reference the claim '{claim.claim_title}' "
-                                f"but is missing the required qualifier: \"{qualifier}\"."
-                            ),
-                            quoted_passage=claim.permitted_statement,
-                            approved_claim_id=claim.id,
-                            suggested_correction=f"Add required qualifier: '{qualifier}'",
-                            confidence=0.85,
-                            is_citation_validated=True,
-                        ))
+                    for start, end in claim_spans:
+                        if not _text_contains(text[start:end], qualifier):
+                            findings.append(RawFinding(
+                                finding_type='EVIDENCE_CLAIM',
+                                category='Missing Required Qualifier',
+                                flagged_text=text[start:end],
+                                start_char=start,
+                                end_char=end,
+                                severity='HIGH',
+                                verification_status='UNSUPPORTED',
+                                explanation=(
+                                    f"The content appears to reference the claim '{claim.claim_title}' "
+                                    f"but is missing the required qualifier: \"{qualifier}\"."
+                                ),
+                                quoted_passage=claim_source_quote,
+                                approved_claim_id=claim.id,
+                                source_version_id=claim_source_version.id if claim_source_version else None,
+                                source_passage_id=claim_source_passage_id,
+                                suggested_correction=f"Add required qualifier: '{qualifier}'",
+                                confidence=0.85,
+                                is_citation_validated=bool(claim_source_version),
+                            ))
 
     # ---- B) Source Document Evidence Checks ----
     # Load all valid (not expired) source document versions for this workspace
@@ -332,8 +466,34 @@ def run_claim_verification(text: str, workspace) -> tuple[list[RawFinding], int]
         passages = sv.passage_excerpts if isinstance(sv.passage_excerpts, list) else []
 
         for passage in passages:
-            passage_text = passage.get('text', '')
+            passage_text = passage.get('text', '') if isinstance(passage, dict) else ''
             if not passage_text:
+                continue
+            passage_id = passage.get('passage_id', '')
+            if not isinstance(passage_id, str) or len(passage_id) > 128:
+                passage_id = ''
+
+            exact_spans = _find_exact_text_spans(text, passage_text.strip())
+            if exact_spans:
+                start, end = exact_spans[0]
+                findings.append(RawFinding(
+                    finding_type='EVIDENCE_CLAIM',
+                    category='Source-Verified Claim',
+                    flagged_text=text[start:end],
+                    start_char=start,
+                    end_char=end,
+                    severity='LOW',
+                    verification_status='SUPPORTED',
+                    explanation=(
+                        f"This exact wording appears in verified source "
+                        f"'{sv.source_document.document_code}' [{sv.version_label}]."
+                    ),
+                    quoted_passage=passage_text[:500],
+                    source_version_id=sv.id,
+                    source_passage_id=passage_id,
+                    confidence=0.95,
+                    is_citation_validated=True,
+                ))
                 continue
 
             # Extract key phrases from the passage (6+ character words are meaningful)
@@ -348,54 +508,29 @@ def run_claim_verification(text: str, workspace) -> tuple[list[RawFinding], int]
             matches = [kp for kp in key_phrases[:8] if _text_contains(text, kp)]
 
             if len(matches) >= 2:
-                # The text references this source — check for contradictions
-                # Simple contradiction detector: look for negations near key phrases
-                negation_words = ['not', 'never', "doesn't", "don't", "no ", "cannot", "can't", "false"]
-                has_negation_near_claim = any(
-                    _text_contains(text, f"{neg} {kp}") or _text_contains(text, f"{kp} {neg}")
-                    for neg in negation_words
-                    for kp in matches
-                )
-
-                if has_negation_near_claim:
-                    findings.append(RawFinding(
-                        finding_type='EVIDENCE_CLAIM',
-                        category='Source Contradiction',
-                        flagged_text=text[:200] + ('...' if len(text) > 200 else ''),
-                        start_char=0,
-                        end_char=min(200, len(text)),
-                        severity='CRITICAL',
-                        verification_status='CONTRADICTED',
-                        explanation=(
-                            f"The submitted copy appears to contradict verified source "
-                            f"'{sv.source_document.document_code}' [{sv.version_label}]. "
-                            f"The source states: \"{passage_text[:200]}\""
-                        ),
-                        quoted_passage=passage_text[:500],
-                        source_version_id=sv.id,
-                        confidence=0.75,
-                        is_citation_validated=True,
-                    ))
-                else:
-                    # Text is consistent with source — create a SUPPORTED finding
-                    # (this is a positive validation, useful in the review report)
-                    findings.append(RawFinding(
-                        finding_type='EVIDENCE_CLAIM',
-                        category='Source-Verified Claim',
-                        flagged_text=matches[0] if matches else passage_text[:50],
-                        start_char=_find_all_spans(text, matches[0])[0][0] if matches and _find_all_spans(text, matches[0]) else 0,
-                        end_char=_find_all_spans(text, matches[0])[0][1] if matches and _find_all_spans(text, matches[0]) else 0,
-                        severity='LOW',
-                        verification_status='SUPPORTED',
-                        explanation=(
-                            f"This claim is supported by verified source "
-                            f"'{sv.source_document.document_code}' [{sv.version_label}]."
-                        ),
-                        quoted_passage=passage_text[:500],
-                        source_version_id=sv.id,
-                        confidence=0.90,
-                        is_citation_validated=True,
-                    ))
+                matched_spans = _find_all_spans(text, matches[0])
+                if not matched_spans:
+                    continue
+                start, end = matched_spans[0]
+                findings.append(RawFinding(
+                    finding_type='EVIDENCE_CLAIM',
+                    category='Potentially Relevant Source',
+                    flagged_text=text[start:end],
+                    start_char=start,
+                    end_char=end,
+                    severity='LOW',
+                    verification_status='UNABLE_TO_DETERMINE',
+                    explanation=(
+                        "Some wording overlaps this approved source, but word overlap "
+                        "alone cannot establish that the submitted claim is supported "
+                        "or contradicted."
+                    ),
+                    quoted_passage=passage_text[:500],
+                    source_version_id=sv.id,
+                    source_passage_id=passage_id,
+                    confidence=0.5,
+                    is_citation_validated=True,
+                ))
 
     return findings, sources_consulted
 
@@ -431,18 +566,40 @@ def run_full_review(content_version, workspace) -> EngineResult:
         full_text = text + '\n' + content_version.extracted_ocr_text
 
     try:
-        # Step 1: Deterministic brand rule checks
         rule_findings, rules_checked = run_brand_rule_checks(full_text, workspace)
         result.findings.extend(rule_findings)
         result.rules_checked_count = rules_checked
 
-        # Step 2: Evidence & claim verification
         claim_findings, sources_consulted = run_claim_verification(full_text, workspace)
         result.findings.extend(claim_findings)
         result.sources_consulted_count = sources_consulted
 
-    except Exception as e:
-        logger.exception("Rule engine encountered an error during review run.")
-        result.error_message = str(e)
+    except Exception as error:
+        logger.error(
+            "Deterministic review checks failed (%s).",
+            type(error).__name__,
+        )
+        result.error_message = 'Deterministic review checks failed.'
+        return result
+
+    try:
+        from django.conf import settings
+        from .ai_adapter import analyze_claims
+
+        result.ai_provider = settings.AI_PROVIDER
+        result.ai_model = settings.AI_MODEL_NAME
+        ai_result = analyze_claims(full_text, workspace)
+        result.ai_status = ai_result.status
+        result.ai_error_message = ai_result.error_message
+        result.findings.extend(ai_result.findings)
+    except Exception as error:
+        logger.error(
+            "AI analysis failed (%s); deterministic findings remain available.",
+            type(error).__name__,
+        )
+        result.ai_status = 'FAILED'
+        result.ai_error_message = (
+            'AI analysis failed; deterministic checks were completed.'
+        )
 
     return result

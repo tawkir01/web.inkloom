@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 export default function Navbar({ activePage, setActivePage }) {
   const { user, memberships, currentWorkspace, selectWorkspace, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const canSubmitContent = ['CONTENT_CREATOR', 'AGENCY_ADMIN'].includes(currentWorkspace?.role);
 
   const roleBadgeColors = {
     'AGENCY_ADMIN': 'bg-cyan-950/80 text-cyan-300 border-cyan-800/60',
@@ -66,16 +67,18 @@ export default function Navbar({ activePage, setActivePage }) {
             >
               Brand Knowledge
             </button>
-            <button
-              onClick={() => setActivePage('submit')}
-              className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                activePage === 'submit'
-                  ? 'bg-slate-800 text-white'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-              }`}
-            >
-              Submit Content
-            </button>
+            {canSubmitContent && (
+              <button
+                onClick={() => setActivePage('submit')}
+                className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                  activePage === 'submit'
+                    ? 'bg-slate-800 text-white'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                }`}
+              >
+                Submit Content
+              </button>
+            )}
             <button
               onClick={() => setActivePage('versions')}
               className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${

@@ -4,7 +4,16 @@ from .models import ContentItem, ContentVersion, ReviewRun, Finding, Suggestion,
 class ContentVersionInline(admin.TabularInline):
     model = ContentVersion
     extra = 0
-    readonly_fields = ('version_number', 'checksum_sha256', 'created_by', 'created_at')
+    readonly_fields = (
+        'version_number',
+        'raw_text',
+        'image_file',
+        'extracted_ocr_text',
+        'ocr_confidence',
+        'checksum_sha256',
+        'created_by',
+        'created_at',
+    )
 
 @admin.register(ContentItem)
 class ContentItemAdmin(admin.ModelAdmin):
@@ -18,7 +27,20 @@ class ContentVersionAdmin(admin.ModelAdmin):
     list_display = ('content_item', 'version_number', 'status', 'created_by', 'checksum_sha256', 'created_at')
     list_filter = ('status', 'content_item__workspace')
     search_fields = ('content_item__title', 'raw_text')
-    readonly_fields = ('checksum_sha256', 'created_at')
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return (
+                'content_item',
+                'version_number',
+                'raw_text',
+                'image_file',
+                'extracted_ocr_text',
+                'ocr_confidence',
+                'checksum_sha256',
+                'created_by',
+                'created_at',
+            )
+        return ('checksum_sha256', 'created_at')
 
 @admin.register(ReviewRun)
 class ReviewRunAdmin(admin.ModelAdmin):

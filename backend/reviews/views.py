@@ -1,7 +1,10 @@
+import logging
+
 from rest_framework import views, status, permissions
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.conf import settings
 from workspaces.models import ClientWorkspace, WorkspaceMembership
 from workspaces.permissions import IsWorkspaceMember, IsContentCreator, IsBrandReviewer
 from governance.models import BrandRule, ApprovedClaim, SourceDocumentVersion
@@ -21,6 +24,9 @@ from .serializers import (
 )
 from .rule_engine import run_full_review
 from audit_log.models import AuditEvent
+
+logger = logging.getLogger(__name__)
+
 
 class WorkspaceContentListView(views.APIView):
     """
@@ -235,34 +241,44 @@ class ReviewRunCreateView(views.APIView):
             version_number=version_number
         )
 
-        # Don't re-run if already approved or processing
-        if version.status == ContentVersion.Status.APPROVED:
-            return Response(
-                {"detail": "This version is already approved. Create a new revision to re-review."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         with transaction.atomic():
-            # Step 1: Create a ReviewRun record to track this session
+            version = ContentVersion.objects.select_for_update().get(pk=version.pk)
+            if version.status not in (
+                ContentVersion.Status.SUBMITTED,
+                ContentVersion.Status.NEEDS_CHANGES,
+                ContentVersion.Status.READY_FOR_REVIEW,
+                ContentVersion.Status.FAILED,
+            ):
+                return Response(
+                    {"detail": "This version cannot be reviewed in its current state."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             review_run = ReviewRun.objects.create(
                 content_version=version,
                 triggered_by=request.user,
                 run_status=ReviewRun.RunStatus.RUNNING,
-                ai_provider='inkloom_deterministic_v1',
+                ai_provider=settings.AI_PROVIDER,
+                ai_model=settings.AI_MODEL_NAME,
+                ai_status=(
+                    ReviewRun.AIStatus.RUNNING
+                    if settings.AI_PROVIDER != 'mock'
+                    and settings.AI_API_KEY
+                    and settings.AI_MODEL_NAME != 'mock-model'
+                    else ReviewRun.AIStatus.NOT_CONFIGURED
+                ),
             )
-
-            # Update content version status to PROCESSING
             version.status = ContentVersion.Status.PROCESSING
             version.save(update_fields=['status'])
 
-            try:
-                # Step 2: Run the deterministic rule engine
-                engine_result = run_full_review(version, workspace)
+        try:
+            engine_result = run_full_review(version, workspace)
+            if engine_result.error_message:
+                raise RuntimeError("The deterministic review engine returned an incomplete result.")
 
-                # Step 3: Persist all findings to the database
+            with transaction.atomic():
                 db_findings = []
                 for raw in engine_result.findings:
-                    # Look up the related DB objects from the IDs in RawFinding
                     brand_rule = None
                     if raw.brand_rule_id:
                         brand_rule = BrandRule.objects.filter(id=raw.brand_rule_id).first()
@@ -290,21 +306,39 @@ class ReviewRunCreateView(views.APIView):
                         brand_rule=brand_rule,
                         approved_claim=approved_claim,
                         source_version=source_version,
+                        source_passage_id=raw.source_passage_id,
+                        source_document_code_snapshot=(
+                            source_version.source_document.document_code if source_version else ''
+                        ),
+                        source_document_title_snapshot=(
+                            source_version.source_document.title if source_version else ''
+                        ),
+                        source_version_label_snapshot=(
+                            source_version.version_label if source_version else ''
+                        ),
                         suggested_correction=raw.suggested_correction,
                         confidence=raw.confidence,
                         is_citation_validated=raw.is_citation_validated,
                     )
                     db_findings.append(f)
 
-                # Step 4: Update ReviewRun with summary statistics
                 review_run.run_status = ReviewRun.RunStatus.COMPLETED
                 review_run.rules_checked_count = engine_result.rules_checked_count
                 review_run.sources_consulted_count = engine_result.sources_consulted_count
-                review_run.save()
+                review_run.ai_provider = engine_result.ai_provider
+                review_run.ai_model = engine_result.ai_model
+                review_run.ai_status = engine_result.ai_status
+                review_run.ai_error_message = engine_result.ai_error_message
+                review_run.save(update_fields=[
+                    'run_status',
+                    'rules_checked_count',
+                    'sources_consulted_count',
+                    'ai_provider',
+                    'ai_model',
+                    'ai_status',
+                    'ai_error_message',
+                ])
 
-                # Step 5: Update ContentVersion status based on findings
-                # If any CRITICAL or HIGH severity issues found → NEEDS_CHANGES
-                # Otherwise → READY_FOR_REVIEW
                 has_blocking_issues = any(
                     f.severity in (Finding.Severity.CRITICAL, Finding.Severity.HIGH)
                     and f.verification_status in (
@@ -320,7 +354,6 @@ class ReviewRunCreateView(views.APIView):
                 )
                 version.save(update_fields=['status'])
 
-                # Step 6: Audit log entry
                 AuditEvent.objects.create(
                     workspace=workspace,
                     user=request.user,
@@ -338,17 +371,33 @@ class ReviewRunCreateView(views.APIView):
                     }
                 )
 
-            except Exception as e:
-                # If the engine crashes, mark the run as FAILED (don't silently swallow)
+        except Exception as error:
+            logger.error(
+                "Review run %s failed for content version %s (%s).",
+                review_run.id,
+                version.id,
+                type(error).__name__,
+            )
+            with transaction.atomic():
                 review_run.run_status = ReviewRun.RunStatus.FAILED
-                review_run.error_message = str(e)
-                review_run.save()
+                review_run.error_message = "Review processing failed. See server logs for details."
+                if review_run.ai_status == ReviewRun.AIStatus.RUNNING:
+                    review_run.ai_status = ReviewRun.AIStatus.FAILED
+                    review_run.ai_error_message = (
+                        'AI analysis was not completed because deterministic checks failed.'
+                    )
+                review_run.save(update_fields=[
+                    'run_status',
+                    'error_message',
+                    'ai_status',
+                    'ai_error_message',
+                ])
                 version.status = ContentVersion.Status.FAILED
                 version.save(update_fields=['status'])
-                return Response(
-                    {"detail": f"Review engine failed: {str(e)}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+            return Response(
+                {"detail": "Review processing failed. The run has been marked failed."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         serializer = ReviewRunSerializer(review_run)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -444,10 +493,12 @@ class ApprovalDecisionView(views.APIView):
         if version.status not in (
             ContentVersion.Status.READY_FOR_REVIEW,
             ContentVersion.Status.NEEDS_CHANGES,
-            ContentVersion.Status.SUBMITTED
-        ):
+        ) or not ReviewRun.objects.filter(
+            content_version=version,
+            run_status=ReviewRun.RunStatus.COMPLETED,
+        ).exists():
             return Response(
-                {"detail": f"Cannot decide on a version with status '{version.status}'."},
+                {"detail": "A completed review is required before an approval decision."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -550,4 +601,3 @@ class ReviewCommentListView(views.APIView):
         )
 
         return Response(ReviewCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
-

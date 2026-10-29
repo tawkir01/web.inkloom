@@ -9,6 +9,9 @@ from governance.models import BrandRule, ApprovedClaim, SourceDocument
 from reviews.models import ContentItem, ContentVersion
 from audit_log.models import AuditEvent
 from django.contrib.auth import get_user_model
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
 
 User = get_user_model()
 
@@ -23,12 +26,14 @@ def health_check(request):
         "message": "AI-Powered Brand Governance & Content Trust Platform API is operational."
     })
 
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
 def system_stats(request):
     """
-    Returns real database statistics across the 17 governance models.
+    Returns global database statistics to authenticated staff users only.
     """
     workspaces = ClientWorkspace.objects.filter(is_active=True).values('id', 'name', 'slug', 'industry')
-    return JsonResponse({
+    return Response({
         "organisations_count": Organisation.objects.count(),
         "workspaces_count": ClientWorkspace.objects.count(),
         "workspaces": list(workspaces),

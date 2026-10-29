@@ -2,6 +2,7 @@ import uuid
 import hashlib
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from workspaces.models import ClientWorkspace
 from governance.models import SourceDocumentVersion, BrandRule, ApprovedClaim
 
@@ -101,14 +102,50 @@ class ContentVersion(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        # Auto-compute checksum on creation for cryptographic integrity
-        if not self.checksum_sha256:
-            hasher = hashlib.sha256()
-            hasher.update((self.raw_text or '').encode('utf-8'))
-            if self.extracted_ocr_text:
-                hasher.update(self.extracted_ocr_text.encode('utf-8'))
-            self.checksum_sha256 = hasher.hexdigest()
+        if self._state.adding:
+            self.checksum_sha256 = self._calculate_checksum()
+        else:
+            existing = type(self).objects.get(pk=self.pk)
+            original_snapshot = (
+                existing.content_item_id,
+                existing.version_number,
+                existing.raw_text,
+                existing.image_file.name if existing.image_file else '',
+                existing.extracted_ocr_text,
+                existing.ocr_confidence,
+                existing.created_by_id,
+            )
+            updated_snapshot = (
+                self.content_item_id,
+                self.version_number,
+                self.raw_text,
+                self.image_file.name if self.image_file else '',
+                self.extracted_ocr_text,
+                self.ocr_confidence,
+                self.created_by_id,
+            )
+            if updated_snapshot != original_snapshot:
+                raise ValidationError("Submitted content versions are immutable; create a revision instead.")
+
+            expected_checksum = existing._calculate_checksum()
+            if existing.checksum_sha256 and existing.checksum_sha256 != expected_checksum:
+                raise ValidationError("The stored content version checksum does not match its snapshot.")
+            if self.checksum_sha256 != existing.checksum_sha256:
+                raise ValidationError("The content version checksum cannot be changed.")
+            if not existing.checksum_sha256:
+                self.checksum_sha256 = expected_checksum
+                update_fields = kwargs.get('update_fields')
+                if update_fields is not None:
+                    kwargs['update_fields'] = set(update_fields) | {'checksum_sha256'}
+
         super().save(*args, **kwargs)
+
+    def _calculate_checksum(self):
+        hasher = hashlib.sha256()
+        hasher.update((self.raw_text or '').encode('utf-8'))
+        if self.extracted_ocr_text:
+            hasher.update(self.extracted_ocr_text.encode('utf-8'))
+        return hasher.hexdigest()
 
     def __str__(self):
         return f"{self.content_item.title} [v{self.version_number}] ({self.get_status_display()})"
@@ -120,6 +157,12 @@ class ReviewRun(models.Model):
     """
     class RunStatus(models.TextChoices):
         PENDING = 'PENDING', 'Pending'
+        RUNNING = 'RUNNING', 'Running'
+        COMPLETED = 'COMPLETED', 'Completed'
+        FAILED = 'FAILED', 'Failed'
+
+    class AIStatus(models.TextChoices):
+        NOT_CONFIGURED = 'NOT_CONFIGURED', 'Not Configured'
         RUNNING = 'RUNNING', 'Running'
         COMPLETED = 'COMPLETED', 'Completed'
         FAILED = 'FAILED', 'Failed'
@@ -142,6 +185,13 @@ class ReviewRun(models.Model):
         default=RunStatus.PENDING
     )
     ai_provider = models.CharField(max_length=64, default='mock')
+    ai_model = models.CharField(max_length=128, blank=True)
+    ai_status = models.CharField(
+        max_length=32,
+        choices=AIStatus.choices,
+        default=AIStatus.NOT_CONFIGURED,
+    )
+    ai_error_message = models.TextField(blank=True)
     rules_checked_count = models.IntegerField(default=0)
     sources_consulted_count = models.IntegerField(default=0)
     raw_model_response = models.JSONField(default=dict, blank=True)
@@ -219,6 +269,10 @@ class Finding(models.Model):
         blank=True, 
         related_name='cited_findings'
     )
+    source_passage_id = models.CharField(max_length=128, blank=True)
+    source_document_code_snapshot = models.CharField(max_length=64, blank=True)
+    source_document_title_snapshot = models.CharField(max_length=255, blank=True)
+    source_version_label_snapshot = models.CharField(max_length=32, blank=True)
     brand_rule = models.ForeignKey(
         BrandRule, 
         on_delete=models.SET_NULL, 

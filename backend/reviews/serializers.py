@@ -114,6 +114,7 @@ class FindingSerializer(serializers.ModelSerializer):
     # Inline source document details so the UI doesn't need a separate API call
     source_version_label = serializers.SerializerMethodField()
     source_document_code = serializers.SerializerMethodField()
+    source_document_title = serializers.SerializerMethodField()
     brand_rule_name = serializers.SerializerMethodField()
     approved_claim_title = serializers.SerializerMethodField()
 
@@ -126,7 +127,8 @@ class FindingSerializer(serializers.ModelSerializer):
             'severity', 'severity_display',
             'verification_status', 'verification_status_display',
             'explanation', 'quoted_passage',
-            'source_version', 'source_version_label', 'source_document_code',
+            'source_version', 'source_passage_id', 'source_version_label', 'source_document_code',
+            'source_document_title',
             'brand_rule', 'brand_rule_name',
             'approved_claim', 'approved_claim_title',
             'suggested_correction', 'is_citation_validated',
@@ -135,10 +137,28 @@ class FindingSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_source_version_label(self, obj):
-        return obj.source_version.version_label if obj.source_version else None
+        return (
+            obj.source_version_label_snapshot
+            or (obj.source_version.version_label if obj.source_version else None)
+        )
 
     def get_source_document_code(self, obj):
-        return obj.source_version.source_document.document_code if obj.source_version else None
+        return (
+            obj.source_document_code_snapshot
+            or (
+                obj.source_version.source_document.document_code
+                if obj.source_version else None
+            )
+        )
+
+    def get_source_document_title(self, obj):
+        return (
+            obj.source_document_title_snapshot
+            or (
+                obj.source_version.source_document.title
+                if obj.source_version else None
+            )
+        )
 
     def get_brand_rule_name(self, obj):
         return obj.brand_rule.name if obj.brand_rule else None
@@ -170,7 +190,8 @@ class ReviewRunSerializer(serializers.ModelSerializer):
         model = ReviewRun
         fields = [
             'id', 'content_version', 'triggered_by', 'triggered_by_username',
-            'run_status', 'run_status_display', 'ai_provider',
+            'run_status', 'run_status_display', 'ai_provider', 'ai_model',
+            'ai_status', 'ai_error_message',
             'rules_checked_count', 'sources_consulted_count',
             'findings', 'findings_count', 'critical_count', 'high_count',
             'error_message', 'created_at'

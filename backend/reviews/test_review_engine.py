@@ -20,9 +20,12 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from rest_framework import status as http_status
+from django.test import override_settings
+from unittest.mock import patch
 from workspaces.models import ClientWorkspace, WorkspaceMembership
 from governance.models import BrandRule, ApprovedClaim, SourceDocument, SourceDocumentVersion
 from reviews.models import ContentItem, ContentVersion, ReviewRun, Finding, ApprovalDecision
+from reviews.ai_adapter import AIAnalysisResult
 from reviews.rule_engine import run_brand_rule_checks, run_claim_verification, run_full_review, EngineResult
 
 User = get_user_model()
@@ -141,6 +144,205 @@ class RuleEngineUnitTest(TestCase):
         self.assertEqual(disallowed[0].severity, 'HIGH')
         self.assertEqual(disallowed[0].approved_claim_id, self.claim.id)
 
+    def test_disallowed_claim_finding_cites_its_approved_source(self):
+        source = SourceDocument.objects.create(
+            workspace=self.workspace,
+            title="Cold-Climate Battery Test",
+            document_code="SRC-BATTERY-01",
+        )
+        source_version = SourceDocumentVersion.objects.create(
+            source_document=source,
+            version_label="v1.0",
+            full_text_content="Laboratory testing confirms the cold-climate battery result.",
+            passage_excerpts=[
+                {
+                    "passage_id": "P1",
+                    "text": "Batteries last up to 40% longer in cold climates under laboratory conditions.",
+                },
+                {
+                    "passage_id": "P2",
+                    "text": "Testing was conducted in an unrelated scenario.",
+                },
+            ],
+        )
+        self.claim.source_version = source_version
+        self.claim.save(update_fields=["source_version"])
+
+        findings, _ = run_claim_verification(
+            "Our battery lasts 40% longer than competitors.",
+            self.workspace,
+        )
+
+        finding = next(f for f in findings if f.category == "Disallowed Claim Variation")
+        self.assertEqual(finding.source_version_id, source_version.id)
+        self.assertEqual(finding.source_passage_id, "P1")
+        self.assertEqual(
+            finding.quoted_passage,
+            "Batteries last up to 40% longer in cold climates under laboratory conditions.",
+        )
+        self.assertEqual(
+            finding.suggested_correction,
+            self.claim.permitted_statement,
+        )
+
+    def test_claim_source_evidence_is_isolated_to_its_workspace(self):
+        other_workspace = ClientWorkspace.objects.create(
+            organisation=self.org,
+            name="Other Brand",
+            slug="other-brand",
+            is_active=True,
+        )
+        other_source = SourceDocument.objects.create(
+            workspace=other_workspace,
+            title="Other Brand Battery Study",
+            document_code="SRC-OTHER-01",
+        )
+        other_version = SourceDocumentVersion.objects.create(
+            source_document=other_source,
+            version_label="v1.0",
+            full_text_content="Other client's battery results.",
+            passage_excerpts=[{"passage_id": "P1", "text": "Battery lasts 40% longer."}],
+        )
+        other_claim = ApprovedClaim.objects.create(
+            workspace=other_workspace,
+            claim_title="Other client's claim",
+            permitted_statement="Battery lasts up to 40% longer.",
+            disallowed_variations="lasts 40% longer",
+            source_version=other_version,
+        )
+
+        findings, sources_consulted = run_claim_verification(
+            "Our battery lasts 40% longer.",
+            self.workspace,
+        )
+
+        self.assertEqual(sources_consulted, 0)
+        self.assertFalse(any(f.approved_claim_id == other_claim.id for f in findings))
+
+    def test_numeric_phrase_with_trailing_punctuation_is_matched(self):
+        rule = BrandRule.objects.create(
+            workspace=self.workspace,
+            name="No numeric percentage",
+            rule_type=BrandRule.RuleType.PROHIBITED_PHRASE,
+            pattern_or_phrase="20%",
+            explanation="This percentage is prohibited.",
+            severity=BrandRule.Severity.HIGH,
+        )
+
+        text = "Save 20% today."
+        findings, _ = run_brand_rule_checks(text, self.workspace)
+        finding = next(f for f in findings if f.brand_rule_id == rule.id)
+
+        self.assertEqual(text[finding.start_char:finding.end_char], "20%")
+        self.assertEqual(finding.flagged_text, "20%")
+
+    def test_missing_qualifier_finding_uses_exact_claim_offsets(self):
+        claim = ApprovedClaim.objects.create(
+            workspace=self.workspace,
+            claim_title="Battery life",
+            permitted_statement="Battery lasts 40% longer",
+            required_qualifiers="up to",
+        )
+        text = "🚀 Battery lasts 40% longer."
+
+        findings, _ = run_claim_verification(text, self.workspace)
+        finding = next(f for f in findings if f.approved_claim_id == claim.id)
+
+        self.assertEqual(
+            text[finding.start_char:finding.end_char],
+            finding.flagged_text,
+        )
+        self.assertEqual(finding.flagged_text, "Battery lasts 40% longer")
+
+    def test_numeric_exaggeration_and_missing_qualifier_are_detected(self):
+        text = "🚀 Batteries last 60% longer in cold climates."
+
+        findings, _ = run_claim_verification(text, self.workspace)
+        numeric_finding = next(
+            finding for finding in findings
+            if finding.category == "Exaggerated Numerical Claim"
+        )
+        qualifier_finding = next(
+            finding for finding in findings
+            if finding.category == "Missing Required Qualifier"
+        )
+
+        self.assertEqual(numeric_finding.verification_status, "CONTRADICTED")
+        self.assertEqual(
+            text[numeric_finding.start_char:numeric_finding.end_char],
+            numeric_finding.flagged_text,
+        )
+        self.assertEqual(numeric_finding.flagged_text, "Batteries last 60% longer in cold climates")
+        self.assertEqual(
+            text[qualifier_finding.start_char:qualifier_finding.end_char],
+            qualifier_finding.flagged_text,
+        )
+        self.assertEqual(qualifier_finding.flagged_text, numeric_finding.flagged_text)
+        self.assertIn("up to", qualifier_finding.explanation)
+
+    def test_word_overlap_is_not_reported_as_proof_of_support(self):
+        source = SourceDocument.objects.create(
+            workspace=self.workspace,
+            title="Battery Report",
+            document_code="SRC-BATTERY-OVERLAP",
+        )
+        SourceDocumentVersion.objects.create(
+            source_document=source,
+            version_label="v1.0",
+            full_text_content="The EcoVolt battery lasts 24 hours in cold climates.",
+            passage_excerpts=[
+                {
+                    "passage_id": "P1",
+                    "text": "The EcoVolt battery lasts 24 hours in cold climates.",
+                },
+            ],
+        )
+        text = "EcoVolt battery popularity is growing."
+
+        findings, _ = run_claim_verification(text, self.workspace)
+        finding = next(
+            item for item in findings
+            if item.category == "Potentially Relevant Source"
+        )
+
+        self.assertEqual(finding.verification_status, "UNABLE_TO_DETERMINE")
+        self.assertNotEqual(finding.verification_status, "SUPPORTED")
+        self.assertEqual(
+            text[finding.start_char:finding.end_char],
+            finding.flagged_text,
+        )
+
+    def test_exact_unicode_source_text_has_exact_offsets(self):
+        source = SourceDocument.objects.create(
+            workspace=self.workspace,
+            title="Battery Report",
+            document_code="SRC-BATTERY-UNICODE",
+        )
+        SourceDocumentVersion.objects.create(
+            source_document=source,
+            version_label="v1.0",
+            full_text_content="Café battery saves 20% during tests.",
+            passage_excerpts=[
+                {
+                    "passage_id": "P1",
+                    "text": "Café battery saves 20% during tests.",
+                },
+            ],
+        )
+        text = "🚀 Café battery saves 20% during tests."
+
+        findings, _ = run_claim_verification(text, self.workspace)
+        finding = next(
+            item for item in findings
+            if item.category == "Source-Verified Claim"
+        )
+
+        self.assertEqual(
+            text[finding.start_char:finding.end_char],
+            finding.flagged_text,
+        )
+        self.assertEqual(finding.flagged_text, "Café battery saves 20% during tests.")
+
     # ────────────────────────────────────────────────────────────
     # TEST 5: Multiple violations in one text → multiple findings
     # ────────────────────────────────────────────────────────────
@@ -170,6 +372,11 @@ class RuleEngineUnitTest(TestCase):
         self.assertEqual(len(prohibited), 0, "Inactive rule should NOT generate a finding")
 
 
+@override_settings(
+    AI_PROVIDER="mock",
+    AI_API_KEY="",
+    AI_MODEL_NAME="mock-model",
+)
 class ReviewRunAPITest(TestCase):
     """
     Integration tests for the full review pipeline via HTTP API.
@@ -249,12 +456,143 @@ class ReviewRunAPITest(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         data = response.data
         self.assertEqual(data['run_status'], 'COMPLETED')
+        self.assertEqual(data['ai_status'], ReviewRun.AIStatus.NOT_CONFIGURED)
         self.assertGreater(data['findings_count'], 0)
         self.assertGreater(data['critical_count'], 0)
 
         # The version should now be NEEDS_CHANGES because CRITICAL finding
         self.version.refresh_from_db()
         self.assertEqual(self.version.status, ContentVersion.Status.NEEDS_CHANGES)
+
+    @patch("reviews.views.run_full_review", side_effect=RuntimeError("private database detail"))
+    def test_review_engine_failure_is_marked_failed_without_leaking_details(self, _mock_engine):
+        self._auth_as(self.creator)
+        response = self.client.post(
+            f"/api/content/{self.item.id}/versions/1/review/"
+        )
+
+        self.assertEqual(response.status_code, http_status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertNotIn("private database detail", response.data["detail"])
+        self.version.refresh_from_db()
+        self.assertEqual(self.version.status, ContentVersion.Status.FAILED)
+        review_run = ReviewRun.objects.get(content_version=self.version)
+        self.assertEqual(review_run.run_status, ReviewRun.RunStatus.FAILED)
+        self.assertNotIn("private database detail", review_run.error_message)
+
+    @patch(
+        "reviews.ai_adapter.analyze_claims",
+        return_value=AIAnalysisResult(
+            status="FAILED",
+            error_message="AI analysis returned an invalid response.",
+        ),
+    )
+    def test_ai_failure_preserves_deterministic_review_results(self, _mock_ai):
+        self._auth_as(self.creator)
+        response = self.client.post(
+            f"/api/content/{self.item.id}/versions/1/review/"
+        )
+
+        self.assertEqual(response.status_code, http_status.HTTP_201_CREATED)
+        self.assertEqual(response.data["run_status"], ReviewRun.RunStatus.COMPLETED)
+        self.assertEqual(response.data["ai_status"], ReviewRun.AIStatus.FAILED)
+        self.assertGreater(response.data["findings_count"], 0)
+        self.assertIn("invalid response", response.data["ai_error_message"])
+
+    def test_review_history_is_not_visible_to_other_workspace_members(self):
+        other_workspace = ClientWorkspace.objects.create(
+            organisation=self.org,
+            name="Other Review Brand",
+            slug="other-review-brand",
+            is_active=True,
+        )
+        other_user = User.objects.create_user(
+            username="other-brand-user",
+            password="test-pass-123",
+        )
+        WorkspaceMembership.objects.create(
+            workspace=other_workspace,
+            user=other_user,
+            role=WorkspaceMembership.Role.CREATOR,
+            is_active=True,
+        )
+
+        self._auth_as(other_user)
+        response = self.client.get(
+            f"/api/content/{self.item.id}/versions/1/reviews/"
+        )
+
+        self.assertEqual(response.status_code, http_status.HTTP_403_FORBIDDEN)
+
+    def test_review_response_includes_linked_claim_evidence(self):
+        source = SourceDocument.objects.create(
+            workspace=self.workspace,
+            title="Battery Performance Study",
+            document_code="SRC-BATTERY-REVIEW",
+        )
+        source_version = SourceDocumentVersion.objects.create(
+            source_document=source,
+            version_label="v2.0",
+            full_text_content="The laboratory study supports the qualified battery statement.",
+            passage_excerpts=[
+                {
+                    "passage_id": "P1",
+                    "text": "Batteries last up to 40% longer in cold climates.",
+                },
+            ],
+        )
+        ApprovedClaim.objects.create(
+            workspace=self.workspace,
+            claim_title="Cold-weather battery life",
+            permitted_statement="Batteries last up to 40% longer in cold climates.",
+            disallowed_variations="lasts 40% longer",
+            source_version=source_version,
+        )
+        claim_item = ContentItem.objects.create(
+            workspace=self.workspace,
+            title="Cold-weather battery claim",
+            created_by=self.creator,
+        )
+        claim_version = ContentVersion.objects.create(
+            content_item=claim_item,
+            version_number=1,
+            raw_text="Our battery lasts 40% longer in cold climates.",
+            created_by=self.creator,
+        )
+
+        self._auth_as(self.creator)
+        response = self.client.post(
+            f"/api/content/{claim_item.id}/versions/1/review/"
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        claim_finding = next(
+            finding for finding in response.data["findings"]
+            if finding["category"] == "Disallowed Claim Variation"
+        )
+        self.assertEqual(claim_finding["source_document_code"], "SRC-BATTERY-REVIEW")
+        self.assertEqual(claim_finding["source_document_title"], "Battery Performance Study")
+        self.assertEqual(claim_finding["source_version_label"], "v2.0")
+        self.assertEqual(claim_finding["source_passage_id"], "P1")
+        self.assertEqual(
+            claim_finding["quoted_passage"],
+            "Batteries last up to 40% longer in cold climates.",
+        )
+        self.assertEqual(
+            claim_finding["suggested_correction"],
+            "Batteries last up to 40% longer in cold climates.",
+        )
+        finding = Finding.objects.get(id=claim_finding["id"])
+        source.title = "Renamed after review"
+        source.document_code = "SRC-RENAMED"
+        source.save(update_fields=["title", "document_code"])
+        source_version.version_label = "v3.0"
+        source_version.save(update_fields=["version_label"])
+        refreshed_finding = Finding.objects.get(id=finding.id)
+        from reviews.serializers import FindingSerializer
+        snapshot = FindingSerializer(refreshed_finding).data
+        self.assertEqual(snapshot["source_document_title"], "Battery Performance Study")
+        self.assertEqual(snapshot["source_document_code"], "SRC-BATTERY-REVIEW")
+        self.assertEqual(snapshot["source_version_label"], "v2.0")
 
     # ────────────────────────────────────────────────────────────
     # TEST 8: Clean content gets READY_FOR_REVIEW status
@@ -310,6 +648,12 @@ class ReviewRunAPITest(TestCase):
         # First run review to put it in a reviewable state
         self.version.status = ContentVersion.Status.READY_FOR_REVIEW
         self.version.save()
+        ReviewRun.objects.create(
+            content_version=self.version,
+            triggered_by=self.creator,
+            run_status=ReviewRun.RunStatus.COMPLETED,
+            ai_provider="test",
+        )
 
         self._auth_as(self.reviewer)
         url = f"/api/content/{self.item.id}/versions/1/approval/"
@@ -324,6 +668,18 @@ class ReviewRunAPITest(TestCase):
         # Verify the ContentVersion status is now APPROVED
         self.version.refresh_from_db()
         self.assertEqual(self.version.status, ContentVersion.Status.APPROVED)
+
+    def test_reviewer_cannot_approve_before_a_completed_review(self):
+        self._auth_as(self.reviewer)
+        response = self.client.post(
+            f"/api/content/{self.item.id}/versions/1/approval/",
+            {"decision": "APPROVED"},
+        )
+
+        self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(
+            ApprovalDecision.objects.filter(content_version=self.version).exists()
+        )
 
     # ────────────────────────────────────────────────────────────
     # TEST 11: Content Creator CANNOT make approval decisions (403)

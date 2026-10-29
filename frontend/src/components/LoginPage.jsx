@@ -22,10 +22,16 @@ export default function LoginPage() {
     }
   };
 
-  const setDemoRole = (userVal, passVal) => {
-    setUsername(userVal);
-    setPassword(passVal);
+  const loginAsDemoRole = async (userVal, passVal) => {
     setError(null);
+    setLoading(true);
+    try {
+      await login(userVal, passVal);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -42,7 +48,7 @@ export default function LoginPage() {
             </div>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">Inkloom Guardian</h1>
-          <p className="text-xs text-slate-400">AI-Powered Brand Governance & Content Trust Platform</p>
+          <p className="text-xs text-slate-400">Evidence-Led Brand Governance & Content Trust Platform</p>
         </div>
 
         {/* Login Card */}
@@ -112,8 +118,9 @@ export default function LoginPage() {
             <div className="grid grid-cols-2 gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => setDemoRole('agency_admin', 'AdminPass123!')}
-                className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-violet-500/50 hover:bg-violet-950/20 text-left transition cursor-pointer"
+                onClick={() => loginAsDemoRole('agency_admin', 'AdminPass123!')}
+                disabled={loading}
+                className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-violet-500/50 hover:bg-violet-950/20 text-left transition cursor-pointer disabled:opacity-50"
               >
                 <div className="font-semibold text-cyan-400">Agency Admin</div>
                 <div className="text-[10px] text-slate-500">Manage rules & sources</div>
@@ -121,8 +128,9 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                onClick={() => setDemoRole('brand_reviewer', 'ReviewerPass123!')}
-                className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-emerald-500/50 hover:bg-emerald-950/20 text-left transition cursor-pointer"
+                onClick={() => loginAsDemoRole('brand_reviewer', 'ReviewerPass123!')}
+                disabled={loading}
+                className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-emerald-500/50 hover:bg-emerald-950/20 text-left transition cursor-pointer disabled:opacity-50"
               >
                 <div className="font-semibold text-emerald-400">Brand Reviewer</div>
                 <div className="text-[10px] text-slate-500">Approve / Reject versions</div>
@@ -130,8 +138,9 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                onClick={() => setDemoRole('content_creator', 'CreatorPass123!')}
-                className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-violet-500/50 hover:bg-violet-950/20 text-left transition cursor-pointer"
+                onClick={() => loginAsDemoRole('content_creator', 'CreatorPass123!')}
+                disabled={loading}
+                className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-violet-500/50 hover:bg-violet-950/20 text-left transition cursor-pointer disabled:opacity-50"
               >
                 <div className="font-semibold text-violet-400">Content Creator</div>
                 <div className="text-[10px] text-slate-500">Submit copy & revisions</div>
@@ -139,8 +148,9 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                onClick={() => setDemoRole('account_manager', 'ManagerPass123!')}
-                className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-indigo-500/50 hover:bg-indigo-950/20 text-left transition cursor-pointer"
+                onClick={() => loginAsDemoRole('account_manager', 'ManagerPass123!')}
+                disabled={loading}
+                className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-indigo-500/50 hover:bg-indigo-950/20 text-left transition cursor-pointer disabled:opacity-50"
               >
                 <div className="font-semibold text-indigo-400">Account Manager</div>
                 <div className="text-[10px] text-slate-500">Coordinate reviews</div>

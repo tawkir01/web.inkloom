@@ -89,6 +89,26 @@ class AuthenticationAndPermissionTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['user']['username'], 'creator_a')
 
+    def test_system_stats_are_restricted_to_authenticated_staff(self):
+        response = self.client.get('/api/stats/')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        regular_token = Token.objects.create(user=self.user_a)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {regular_token.key}')
+        response = self.client.get('/api/stats/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        staff_user = User.objects.create_user(
+            username="staff_stats",
+            password="SecurePasswordStaff1!",
+            is_staff=True,
+        )
+        staff_token = Token.objects.create(user=staff_user)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {staff_token.key}')
+        response = self.client.get('/api/stats/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['workspaces_count'], 2)
+
     def test_cross_client_isolation_enforced(self):
         """
         CRITICAL MULTI-TENANT TEST:

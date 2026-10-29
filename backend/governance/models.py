@@ -85,6 +85,14 @@ class ApprovedClaim(models.Model):
         blank=True,
         help_text="Common exaggerated variations that violate this claim"
     )
+    source_version = models.ForeignKey(
+        'SourceDocumentVersion',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approved_claims',
+        help_text="Approved source document version supporting this claim"
+    )
     category = models.CharField(max_length=100, default='General')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -140,7 +148,7 @@ class SourceDocumentVersion(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     source_document = models.ForeignKey(
         SourceDocument, 
-        on_delete=models.CASCADE, 
+        on_delete=models.PROTECT,
         related_name='versions'
     )
     version_label = models.CharField(max_length=32, default='v1.0')

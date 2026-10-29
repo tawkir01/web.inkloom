@@ -35,6 +35,8 @@ export default function BrandKnowledgeView() {
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [showSourceModal, setShowSourceModal] = useState(false);
+  const [sourceVersionModal, setSourceVersionModal] = useState(null);
+  const [savingSourceVersion, setSavingSourceVersion] = useState(false);
 
   // New Rule Form State
   const [newRule, setNewRule] = useState({
@@ -53,6 +55,7 @@ export default function BrandKnowledgeView() {
     permitted_statement: '',
     required_qualifiers: '',
     disallowed_variations: '',
+    source_version: '',
     category: 'General',
     is_active: true
   });
@@ -62,6 +65,15 @@ export default function BrandKnowledgeView() {
     document_code: '',
     title: '',
     description: ''
+  });
+
+  const [newSourceVersion, setNewSourceVersion] = useState({
+    version_label: 'v1.0',
+    full_text_content: '',
+    passage_texts: '',
+    effective_date: '',
+    expiration_date: '',
+    is_approved: true
   });
 
   const canEdit = currentWorkspace?.role === 'AGENCY_ADMIN';
@@ -145,7 +157,10 @@ export default function BrandKnowledgeView() {
           'Authorization': `Token ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(newClaim)
+        body: JSON.stringify({
+          ...newClaim,
+          source_version: newClaim.source_version || null
+        })
       });
       if (!res.ok) {
         const data = await res.json();
@@ -157,6 +172,7 @@ export default function BrandKnowledgeView() {
         permitted_statement: '',
         required_qualifiers: '',
         disallowed_variations: '',
+        source_version: '',
         category: 'General',
         is_active: true
       });
@@ -186,6 +202,53 @@ export default function BrandKnowledgeView() {
       fetchKnowledgeData();
     } catch (err) {
       alert(`Error registering source: ${err.message}`);
+    }
+  };
+
+  const handleCreateSourceVersion = async (e) => {
+    e.preventDefault();
+    if (!sourceVersionModal) return;
+
+    setSavingSourceVersion(true);
+    try {
+      const res = await apiFetch(`/api/sources/${sourceVersionModal.id}/versions/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          version_label: newSourceVersion.version_label,
+          full_text_content: newSourceVersion.full_text_content,
+          passage_excerpts: newSourceVersion.passage_texts
+            .split('\n')
+            .map((text) => text.trim())
+            .filter(Boolean)
+            .map((text, index) => ({ passage_id: `P${index + 1}`, text })),
+          effective_date: newSourceVersion.effective_date || null,
+          expiration_date: newSourceVersion.expiration_date || null,
+          is_approved: newSourceVersion.is_approved
+        })
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(JSON.stringify(data));
+      }
+
+      setSourceVersionModal(null);
+      setNewSourceVersion({
+        version_label: 'v1.0',
+        full_text_content: '',
+        passage_texts: '',
+        effective_date: '',
+        expiration_date: '',
+        is_approved: true
+      });
+      await fetchKnowledgeData();
+    } catch (err) {
+      alert(`Error adding source version: ${err.message}`);
+    } finally {
+      setSavingSourceVersion(false);
     }
   };
 
@@ -418,6 +481,15 @@ export default function BrandKnowledgeView() {
                   </div>
                 )}
 
+                {claim.source_version && (
+                  <div className="bg-cyan-950/25 border border-cyan-800/40 p-3 rounded-xl space-y-1">
+                    <span className="text-[10px] uppercase font-bold text-cyan-400">Supporting Approved Source:</span>
+                    <p className="text-cyan-100 text-xs">
+                      {claim.source_document_code} · {claim.source_document_title} [{claim.source_version_label}]
+                    </p>
+                  </div>
+                )}
+
                 {claim.disallowed_variations && (
                   <div className="bg-red-950/20 border border-red-800/40 p-3 rounded-xl space-y-1">
                     <span className="text-[10px] uppercase font-bold text-red-400">Disallowed Exaggerations:</span>
@@ -454,8 +526,20 @@ export default function BrandKnowledgeView() {
                   </div>
                 </div>
 
-                <div className="text-xs text-slate-400 font-mono">
-                  {source.versions?.length || 0} Registered Version(s)
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 font-mono">
+                    {source.versions?.length || 0} Registered Version(s)
+                  </span>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setSourceVersionModal(source)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/70 border border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/70"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add Version
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -681,6 +765,27 @@ export default function BrandKnowledgeView() {
               </div>
 
               <div>
+                <label className="text-slate-300 font-medium block mb-1">Supporting Approved Source (Optional)</label>
+                <select
+                  value={newClaim.source_version}
+                  onChange={(e) => setNewClaim({ ...newClaim, source_version: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white"
+                >
+                  <option value="">No linked source document</option>
+                  {sources.flatMap((source) => (source.versions || [])
+                    .filter((version) => version.is_currently_valid)
+                    .map((version) => (
+                      <option key={version.id} value={version.id}>
+                        {source.document_code} — {source.title} [{version.version_label}]
+                      </option>
+                    )))}
+                </select>
+                <p className="text-slate-500 mt-1">
+                  Link a current approved version to include its evidence with claim findings.
+                </p>
+              </div>
+
+              <div>
                 <label className="text-slate-300 font-medium block mb-1">Disallowed Exaggerations</label>
                 <input
                   type="text"
@@ -777,7 +882,109 @@ export default function BrandKnowledgeView() {
           </div>
         </div>
       )}
+
+      {sourceVersionModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-[#0D1527] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-white text-base">Add Approved Source Version</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  {sourceVersionModal.document_code} · {sourceVersionModal.title}
+                </p>
+              </div>
+              <button onClick={() => setSourceVersionModal(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateSourceVersion} className="space-y-3.5 text-xs">
+              <div>
+                <label className="text-slate-300 font-medium block mb-1">Version Label</label>
+                <input
+                  type="text"
+                  required
+                  value={newSourceVersion.version_label}
+                  onChange={(e) => setNewSourceVersion({ ...newSourceVersion, version_label: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-medium block mb-1">Full Approved Document Text</label>
+                <textarea
+                  required
+                  rows="5"
+                  value={newSourceVersion.full_text_content}
+                  onChange={(e) => setNewSourceVersion({ ...newSourceVersion, full_text_content: e.target.value })}
+                  placeholder="Paste the approved source text."
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-medium block mb-1">Evidence Passages</label>
+                <textarea
+                  rows="4"
+                  value={newSourceVersion.passage_texts}
+                  onChange={(e) => setNewSourceVersion({ ...newSourceVersion, passage_texts: e.target.value })}
+                  placeholder="Add one exact evidence excerpt per line."
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white"
+                />
+                <p className="text-slate-500 mt-1">Passage IDs will be assigned automatically (P1, P2, ...).</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">Effective Date (Optional)</label>
+                  <input
+                    type="date"
+                    value={newSourceVersion.effective_date}
+                    onChange={(e) => setNewSourceVersion({ ...newSourceVersion, effective_date: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">Expiration Date (Optional)</label>
+                  <input
+                    type="date"
+                    value={newSourceVersion.expiration_date}
+                    onChange={(e) => setNewSourceVersion({ ...newSourceVersion, expiration_date: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white"
+                  />
+                </div>
+              </div>
+
+              <label className="inline-flex items-center gap-2 text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={newSourceVersion.is_approved}
+                  onChange={(e) => setNewSourceVersion({ ...newSourceVersion, is_approved: e.target.checked })}
+                  className="accent-emerald-500"
+                />
+                Approved for claim verification
+              </label>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSourceVersionModal(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingSourceVersion}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium"
+                >
+                  {savingSourceVersion ? 'Saving...' : 'Save Source Version'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

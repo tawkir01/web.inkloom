@@ -84,6 +84,27 @@ class GovernanceAPITests(TestCase):
         self.assertIn("Prohibit 50% Savings", rule_names)
         self.assertNotIn("Prohibit Chemical Free", rule_names)
 
+    def test_source_documents_are_scoped_to_workspace(self):
+        SourceDocument.objects.create(
+            workspace=self.ws_ecovolt,
+            document_code="SRC-EV-ISOLATION",
+            title="EcoVolt source",
+        )
+        SourceDocument.objects.create(
+            workspace=self.ws_purenest,
+            document_code="SRC-PN-ISOLATION",
+            title="PureNest source",
+        )
+        token = Token.objects.create(user=self.creator_ecovolt)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+
+        response = self.client.get(f'/api/workspaces/{self.ws_ecovolt.id}/sources/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        source_codes = [source['document_code'] for source in response.data['results']]
+        self.assertIn("SRC-EV-ISOLATION", source_codes)
+        self.assertNotIn("SRC-PN-ISOLATION", source_codes)
+
     def test_admin_can_create_brand_rule_and_audits_event(self):
         """Agency Administrator can create a brand rule and an AuditEvent is recorded."""
         token = Token.objects.create(user=self.admin_ecovolt)
@@ -153,6 +174,33 @@ class GovernanceAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['category'], "Efficiency")
 
+    def test_approved_claim_cannot_link_source_from_another_workspace(self):
+        source = SourceDocument.objects.create(
+            workspace=self.ws_purenest,
+            document_code="SRC-PN-TEST-01",
+            title="PureNest Test Report",
+        )
+        source_version = SourceDocumentVersion.objects.create(
+            source_document=source,
+            version_label="v1.0",
+            full_text_content="Evidence belonging to another workspace.",
+        )
+        token = Token.objects.create(user=self.admin_ecovolt)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+
+        response = self.client.post(
+            f'/api/workspaces/{self.ws_ecovolt.id}/claims/',
+            {
+                "claim_title": "Cross-workspace claim",
+                "permitted_statement": "A test statement.",
+                "source_version": str(source_version.id),
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('source_version', response.data)
+
     def test_source_document_and_version_registration(self):
         """Admin can register a source document and append a version with passage excerpts."""
         token = Token.objects.create(user=self.admin_ecovolt)
@@ -191,6 +239,41 @@ class GovernanceAPITests(TestCase):
         self.assertEqual(ver_resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ver_resp.data['version_label'], "v1.0")
         self.assertTrue(ver_resp.data['is_currently_valid'])
+
+        delete_resp = self.client.delete(
+            f'/api/workspaces/{self.ws_ecovolt.id}/sources/{source_id}/'
+        )
+        self.assertEqual(delete_resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(SourceDocumentVersion.objects.filter(id=ver_resp.data['id']).exists())
+
+    def test_source_passages_require_unique_ids_and_text(self):
+        token = Token.objects.create(user=self.admin_ecovolt)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+        source = SourceDocument.objects.create(
+            workspace=self.ws_ecovolt,
+            title="Passage validation source",
+            document_code="SRC-PASSAGE-VALIDATION",
+        )
+        endpoint = f'/api/sources/{source.id}/versions/'
+        payload = {
+            "version_label": "v1.0",
+            "full_text_content": "Source text.",
+            "passage_excerpts": [{"text": "Missing stable ID."}],
+        }
+
+        missing_id = self.client.post(endpoint, payload, format='json')
+        self.assertEqual(missing_id.status_code, status.HTTP_400_BAD_REQUEST)
+
+        payload["passage_excerpts"] = [
+            {"passage_id": "P1", "text": "First passage."},
+            {"passage_id": "P1", "text": "Duplicate ID."},
+        ]
+        duplicate_id = self.client.post(endpoint, payload, format='json')
+        self.assertEqual(duplicate_id.status_code, status.HTTP_400_BAD_REQUEST)
+
+        payload["passage_excerpts"] = [{"passage_id": "P1", "text": 42}]
+        invalid_text = self.client.post(endpoint, payload, format='json')
+        self.assertEqual(invalid_text.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cross_client_rule_creation_blocked(self):
         """User who is Admin in EcoVolt cannot add rules to PureNest workspace."""

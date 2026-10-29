@@ -1,6 +1,7 @@
 from rest_framework import viewsets, permissions, status, views
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
+from django.db.models.deletion import ProtectedError
 from workspaces.models import ClientWorkspace, WorkspaceMembership
 from workspaces.permissions import IsWorkspaceMember, IsWorkspaceAdmin
 from .models import BrandRule, ApprovedClaim, SourceDocument, SourceDocumentVersion, BrandAsset
@@ -105,7 +106,11 @@ class SourceDocumentViewSet(WorkspaceScopedMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         workspace = self.get_workspace()
-        return SourceDocument.objects.filter(workspace=workspace).prefetch_related('versions')
+        return (
+            SourceDocument.objects.filter(workspace=workspace)
+            .prefetch_related('versions')
+            .order_by('document_code')
+        )
 
     def perform_create(self, serializer):
         workspace = self.get_workspace()
@@ -117,6 +122,21 @@ class SourceDocumentViewSet(WorkspaceScopedMixin, viewsets.ModelViewSet):
             description=f"Source document '{source.document_code}: {source.title}' registered.",
             metadata={"source_id": str(source.id), "code": source.document_code}
         )
+
+    def destroy(self, request, *args, **kwargs):
+        source = self.get_object()
+        if source.versions.exists():
+            return Response(
+                {"detail": "Source documents with version history cannot be deleted."},
+                status=status.HTTP_409_CONFLICT
+            )
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {"detail": "This source document is referenced and cannot be deleted."},
+                status=status.HTTP_409_CONFLICT
+            )
 
 
 class SourceDocumentVersionCreateView(views.APIView):
