@@ -1,17 +1,8 @@
 import React, { useState } from 'react';
 import { 
   ShieldCheck, 
-  Database, 
-  Server, 
-  Cpu, 
   CheckCircle2, 
-  AlertCircle, 
-  Layers, 
-  Briefcase, 
   Lock, 
-  Sparkles,
-  Users,
-  FileCheck2,
   ArrowRight
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';

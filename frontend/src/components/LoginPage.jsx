@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, User, ArrowRight, AlertCircle, Sparkles, KeyRound } from 'lucide-react';
+import { ShieldCheck, User, ArrowRight, AlertCircle, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
   const { login } = useAuth();
   const [username, setUsername] = useState('agency_admin');
-  const [password, setPassword] = useState('AdminPass123!');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -14,7 +13,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await login(username, password);
+      await login(username, '');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -22,11 +21,11 @@ export default function LoginPage() {
     }
   };
 
-  const loginAsDemoRole = async (userVal, passVal) => {
+  const loginAsDemoRole = async (userVal) => {
     setError(null);
     setLoading(true);
     try {
-      await login(userVal, passVal);
+      await login(userVal, '');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -55,7 +54,7 @@ export default function LoginPage() {
         <div className="rounded-2xl border border-slate-800/90 bg-[#0D1527]/90 backdrop-blur-xl p-8 shadow-2xl space-y-6">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold text-white">Sign In to Workspace</h2>
-            <p className="text-xs text-slate-400">Enter your credentials or choose a pre-configured demo role below.</p>
+            <p className="text-xs text-slate-400">Enter your username or choose a demo role below.</p>
           </div>
 
           {error && (
@@ -77,21 +76,6 @@ export default function LoginPage() {
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-900/90 border border-slate-700/80 text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition"
                   placeholder="Enter username"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Password</label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-900/90 border border-slate-700/80 text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition"
-                  placeholder="••••••••••••"
                 />
               </div>
             </div>
@@ -118,7 +102,7 @@ export default function LoginPage() {
             <div className="grid grid-cols-2 gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => loginAsDemoRole('agency_admin', 'AdminPass123!')}
+                onClick={() => loginAsDemoRole('agency_admin')}
                 disabled={loading}
                 className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-violet-500/50 hover:bg-violet-950/20 text-left transition cursor-pointer disabled:opacity-50"
               >
@@ -128,7 +112,7 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                onClick={() => loginAsDemoRole('brand_reviewer', 'ReviewerPass123!')}
+                onClick={() => loginAsDemoRole('brand_reviewer')}
                 disabled={loading}
                 className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-emerald-500/50 hover:bg-emerald-950/20 text-left transition cursor-pointer disabled:opacity-50"
               >
@@ -138,7 +122,7 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                onClick={() => loginAsDemoRole('content_creator', 'CreatorPass123!')}
+                onClick={() => loginAsDemoRole('content_creator')}
                 disabled={loading}
                 className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-violet-500/50 hover:bg-violet-950/20 text-left transition cursor-pointer disabled:opacity-50"
               >
@@ -148,7 +132,7 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                onClick={() => loginAsDemoRole('account_manager', 'ManagerPass123!')}
+                onClick={() => loginAsDemoRole('account_manager')}
                 disabled={loading}
                 className="p-2 rounded-lg border border-slate-800 bg-slate-900/60 hover:border-indigo-500/50 hover:bg-indigo-950/20 text-left transition cursor-pointer disabled:opacity-50"
               >

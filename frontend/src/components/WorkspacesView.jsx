@@ -1,28 +1,16 @@
 ﻿import apiFetch from "../api";
-import React, { useState, useEffect } from 'react';
-import { Briefcase, Users, FileText, CheckCircle2, ShieldCheck, Plus, AlertCircle, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Users, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function WorkspacesView() {
   const { token, currentWorkspace, selectWorkspace } = useAuth();
   const [workspaces, setWorkspaces] = useState([]);
   const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [membersLoading, setMembersLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchWorkspaces();
-  }, [token]);
-
-  useEffect(() => {
-    if (currentWorkspace?.workspace_id) {
-      fetchMembers(currentWorkspace.workspace_id);
-    }
-  }, [currentWorkspace, token]);
-
-  const fetchWorkspaces = async () => {
-    setLoading(true);
+  const fetchWorkspaces = useCallback(async () => {
     try {
       const res = await apiFetch('/api/workspaces/', {
         headers: { 'Authorization': `Token ${token}` }
@@ -30,15 +18,15 @@ export default function WorkspacesView() {
       if (res.ok) {
         const data = await res.json();
         setWorkspaces(data.results || data);
+      } else {
+        setError('Failed to fetch workspaces.');
       }
-    } catch (err) {
+    } catch {
       setError('Failed to fetch workspaces.');
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [token]);
 
-  const fetchMembers = async (wsId) => {
+  const fetchMembers = useCallback(async (wsId) => {
     setMembersLoading(true);
     try {
       const res = await apiFetch(`/api/workspaces/${wsId}/members/`, {
@@ -53,7 +41,17 @@ export default function WorkspacesView() {
     } finally {
       setMembersLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
+
+  useEffect(() => {
+    if (currentWorkspace?.workspace_id) {
+      fetchMembers(currentWorkspace.workspace_id);
+    }
+  }, [currentWorkspace, fetchMembers]);
 
   const roleColors = {
     'AGENCY_ADMIN': 'text-cyan-400 bg-cyan-950/60 border-cyan-800/50',
@@ -214,4 +212,3 @@ export default function WorkspacesView() {
     </div>
   );
 }
-

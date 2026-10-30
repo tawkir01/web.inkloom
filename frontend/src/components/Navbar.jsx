@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, ChevronDown, LogOut, Briefcase, User, Sparkles, Check } from 'lucide-react';
+import { ShieldCheck, ChevronDown, LogOut, Briefcase, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Navbar({ activePage, setActivePage }) {

@@ -336,7 +336,7 @@ function FindingCard({ finding, isActive, onClick }) {
 
 // â”€â”€â”€ Main Page Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function ReviewWorkspaceView() {
-  const { user, currentWorkspace, token } = useAuth();
+  const { currentWorkspace, token } = useAuth();
   const canApprove = ['BRAND_REVIEWER', 'AGENCY_ADMIN'].includes(currentWorkspace?.role);
 
   // Data state

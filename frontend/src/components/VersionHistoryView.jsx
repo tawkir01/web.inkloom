@@ -1,18 +1,12 @@
 ﻿import apiFetch from "../api";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
-  History, 
   GitBranch, 
   CheckCircle2, 
   AlertCircle, 
   Lock, 
   Plus, 
-  ArrowRight, 
-  FileText, 
-  ShieldCheck, 
-  ChevronDown,
   X,
-  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -31,35 +25,7 @@ export default function VersionHistoryView() {
   const [revisedText, setRevisedText] = useState('');
   const [revisionLoading, setRevisionLoading] = useState(false);
 
-  useEffect(() => {
-    if (currentWorkspace?.workspace_id) {
-      fetchWorkspaceContent();
-    }
-  }, [currentWorkspace, token]);
-
-  const fetchWorkspaceContent = async () => {
-    if (!currentWorkspace?.workspace_id) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await apiFetch(`/api/workspaces/${currentWorkspace.workspace_id}/content/`, {
-        headers: { 'Authorization': `Token ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setContentItems(data);
-        if (data.length > 0 && !selectedItem) {
-          fetchItemDetail(data[0].id);
-        }
-      }
-    } catch (err) {
-      setError('Failed to fetch workspace content.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchItemDetail = async (itemId) => {
+  const fetchItemDetail = useCallback(async (itemId) => {
     setDetailLoading(true);
     try {
       const res = await apiFetch(`/api/content/${itemId}/`, {
@@ -75,7 +41,35 @@ export default function VersionHistoryView() {
     } finally {
       setDetailLoading(false);
     }
-  };
+  }, [token]);
+
+  const fetchWorkspaceContent = useCallback(async () => {
+    if (!currentWorkspace?.workspace_id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/workspaces/${currentWorkspace.workspace_id}/content/`, {
+        headers: { 'Authorization': `Token ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setContentItems(data);
+        if (data.length > 0 && !selectedItem) {
+          await fetchItemDetail(data[0].id);
+        }
+      }
+    } catch {
+      setError('Failed to fetch workspace content.');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentWorkspace, fetchItemDetail, selectedItem, token]);
+
+  useEffect(() => {
+    if (currentWorkspace?.workspace_id) {
+      fetchWorkspaceContent();
+    }
+  }, [currentWorkspace, fetchWorkspaceContent]);
 
   const handleOpenRevision = () => {
     if (itemDetail && itemDetail.versions && itemDetail.versions.length > 0) {

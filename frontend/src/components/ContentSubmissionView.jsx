@@ -2,14 +2,10 @@
 import React, { useState } from 'react';
 import { 
   Send, 
-  FileText, 
   Image as ImageIcon, 
   Sparkles, 
   CheckCircle2, 
   AlertCircle, 
-  Upload, 
-  ArrowRight,
-  HelpCircle,
   Briefcase
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -265,4 +261,3 @@ export default function ContentSubmissionView({ onSubmitted }) {
     </div>
   );
 }
-

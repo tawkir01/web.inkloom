@@ -1,5 +1,5 @@
 ﻿import apiFetch from "../api";
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const AuthContext = createContext(null);
 
@@ -9,6 +9,31 @@ export function AuthProvider({ children }) {
   const [memberships, setMemberships] = useState([]);
   const [currentWorkspace, setCurrentWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const logout = useCallback(async () => {
+    if (token) {
+      try {
+        const res = await apiFetch('/api/auth/logout/', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (!res.ok) {
+          throw new Error(`Logout request failed with status ${res.status}.`);
+        }
+      } catch (error) {
+        console.warn('Failed to invalidate server session during logout:', error);
+      }
+    }
+    localStorage.removeItem('inkloom_token');
+    localStorage.removeItem('inkloom_active_workspace_id');
+    setToken(null);
+    setUser(null);
+    setMemberships([]);
+    setCurrentWorkspace(null);
+  }, [token]);
 
   // Fetch current user & memberships on mount if token exists
   useEffect(() => {
@@ -48,13 +73,13 @@ export function AuthProvider({ children }) {
     };
 
     fetchProfile();
-  }, [token]);
+  }, [token, logout]);
 
-  const login = async (username, password) => {
+  const login = async (username, password = '') => {
     const res = await apiFetch('/api/auth/login/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password: password || '' })
     });
 
     const data = await res.json();
@@ -71,28 +96,6 @@ export function AuthProvider({ children }) {
       localStorage.setItem('inkloom_active_workspace_id', data.memberships[0].workspace_id);
     }
     return data;
-  };
-
-  const logout = async () => {
-    if (token) {
-      try {
-        await apiFetch('/api/auth/logout/', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Token ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      } catch (e) {
-        // ignore network error on logout
-      }
-    }
-    localStorage.removeItem('inkloom_token');
-    localStorage.removeItem('inkloom_active_workspace_id');
-    setToken(null);
-    setUser(null);
-    setMemberships([]);
-    setCurrentWorkspace(null);
   };
 
   const selectWorkspace = (membership) => {
@@ -120,4 +123,3 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-

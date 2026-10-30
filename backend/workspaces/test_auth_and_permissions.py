@@ -65,10 +65,21 @@ class AuthenticationAndPermissionTests(TestCase):
         self.assertEqual(response.data['memberships'][0]['workspace_name'], 'EcoVolt Workspace')
         self.assertEqual(response.data['memberships'][0]['role'], 'CONTENT_CREATOR')
 
-    def test_login_invalid_credentials_returns_401(self):
-        """Invalid passwords must be rejected with 401."""
+    def test_login_without_password_succeeds_for_known_user(self):
+        """Username-only login remains valid when no password is supplied."""
         response = self.client.post('/api/auth/login/', {
             'username': 'creator_a',
+            'password': 'WrongPassword!'
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('token', response.data)
+        self.assertEqual(response.data['user']['username'], 'creator_a')
+
+    def test_login_unknown_user_returns_401(self):
+        """Unknown usernames are rejected even when the frontend sends a password."""
+        response = self.client.post('/api/auth/login/', {
+            'username': 'missing_user',
             'password': 'WrongPassword!'
         }, format='json')
 

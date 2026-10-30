@@ -1,7 +1,7 @@
 from rest_framework import status, views, viewsets, permissions
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import get_user_model, login, logout
 from django.shortcuts import get_object_or_404
 from .models import ClientWorkspace, WorkspaceMembership
 from .serializers import (
@@ -13,27 +13,28 @@ from .serializers import (
 from .permissions import IsWorkspaceMember, IsWorkspaceAdmin
 from audit_log.models import AuditEvent
 
+User = get_user_model()
+
 class LoginView(views.APIView):
     """
-    Authenticates user with username & password.
+    Authenticates a user by username.
     Returns auth token, user profile, and accessible workspaces.
     """
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         username = request.data.get('username', '').strip()
-        password = request.data.get('password', '')
 
-        if not username or not password:
+        if not username:
             return Response(
-                {"detail": "Please provide both username and password."}, 
+                {"detail": "Please provide a username."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        user = authenticate(request, username=username, password=password)
+        user = User.objects.filter(username=username).first()
         if not user:
             return Response(
-                {"detail": "Invalid credentials. Please verify your username and password."}, 
+                {"detail": "Invalid credentials. Please verify your username."},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 

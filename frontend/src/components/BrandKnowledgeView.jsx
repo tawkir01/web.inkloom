@@ -1,18 +1,12 @@
 ﻿import apiFetch from "../api";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   BookOpen, 
   Scale, 
   FileCheck2, 
   Plus, 
-  CheckCircle2, 
   AlertCircle, 
   Filter, 
-  Search, 
-  Calendar, 
-  ShieldAlert, 
-  ExternalLink,
-  ChevronRight,
   Info,
   X
 } from 'lucide-react';
@@ -24,7 +18,6 @@ export default function BrandKnowledgeView() {
   const [rules, setRules] = useState([]);
   const [claims, setClaims] = useState([]);
   const [sources, setSources] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   // Filters
@@ -78,15 +71,8 @@ export default function BrandKnowledgeView() {
 
   const canEdit = currentWorkspace?.role === 'AGENCY_ADMIN';
 
-  useEffect(() => {
-    if (currentWorkspace?.workspace_id) {
-      fetchKnowledgeData();
-    }
-  }, [currentWorkspace, token]);
-
-  const fetchKnowledgeData = async () => {
+  const fetchKnowledgeData = useCallback(async () => {
     if (!currentWorkspace?.workspace_id) return;
-    setLoading(true);
     setError(null);
     const wsId = currentWorkspace.workspace_id;
 
@@ -110,12 +96,14 @@ export default function BrandKnowledgeView() {
         const data = await sourcesRes.json();
         setSources(data.results || data);
       }
-    } catch (err) {
+    } catch {
       setError('Failed to fetch brand knowledge records.');
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [currentWorkspace, token]);
+
+  useEffect(() => {
+    fetchKnowledgeData();
+  }, [fetchKnowledgeData]);
 
   const handleCreateRule = async (e) => {
     e.preventDefault();
