@@ -172,12 +172,18 @@ CORS_ALLOWED_ORIGINS_DEFAULT = (
 )
 cors_origins_str = os.getenv('CORS_ALLOWED_ORIGINS', CORS_ALLOWED_ORIGINS_DEFAULT)
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins_str.split(',') if origin.strip()]
+if 'https://webinkloom-yjed.vercel.app' not in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS.append('https://webinkloom-yjed.vercel.app')
+
 CORS_ALLOW_CREDENTIALS = True
 csrf_origins_str = os.getenv(
     'CSRF_TRUSTED_ORIGINS',
     'http://localhost:5173,http://127.0.0.1:5173' if DEBUG else '',
 )
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins_str.split(',') if origin.strip()]
+if 'https://webinkloom-yjed.vercel.app' not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append('https://webinkloom-yjed.vercel.app')
+
 
 # AI & OCR Adapter Config
 AI_PROVIDER = os.getenv('AI_PROVIDER', 'mock')
