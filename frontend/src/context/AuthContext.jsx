@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('inkloom_token') || null);
+  const [token, setToken] = useState(() => sessionStorage.getItem('inkloom_token') || null);
   const [user, setUser] = useState(null);
   const [memberships, setMemberships] = useState([]);
   const [currentWorkspace, setCurrentWorkspace] = useState(null);
@@ -27,8 +27,8 @@ export function AuthProvider({ children }) {
         console.warn('Failed to invalidate server session during logout:', error);
       }
     }
-    localStorage.removeItem('inkloom_token');
-    localStorage.removeItem('inkloom_active_workspace_id');
+    sessionStorage.removeItem('inkloom_token');
+    sessionStorage.removeItem('inkloom_active_workspace_id');
     setToken(null);
     setUser(null);
     setMemberships([]);
@@ -57,7 +57,7 @@ export function AuthProvider({ children }) {
           setMemberships(data.memberships);
           if (data.memberships.length > 0) {
             // Restore previous workspace selection or pick first
-            const savedWsId = localStorage.getItem('inkloom_active_workspace_id');
+            const savedWsId = sessionStorage.getItem('inkloom_active_workspace_id');
             const found = data.memberships.find(m => m.workspace_id === savedWsId);
             setCurrentWorkspace(found || data.memberships[0]);
           }
@@ -87,20 +87,20 @@ export function AuthProvider({ children }) {
       throw new Error(data.detail || 'Login failed.');
     }
 
-    localStorage.setItem('inkloom_token', data.token);
+    sessionStorage.setItem('inkloom_token', data.token);
     setToken(data.token);
     setUser(data.user);
     setMemberships(data.memberships);
     if (data.memberships.length > 0) {
       setCurrentWorkspace(data.memberships[0]);
-      localStorage.setItem('inkloom_active_workspace_id', data.memberships[0].workspace_id);
+      sessionStorage.setItem('inkloom_active_workspace_id', data.memberships[0].workspace_id);
     }
     return data;
   };
 
   const selectWorkspace = (membership) => {
     setCurrentWorkspace(membership);
-    localStorage.setItem('inkloom_active_workspace_id', membership.workspace_id);
+    sessionStorage.setItem('inkloom_active_workspace_id', membership.workspace_id);
   };
 
   return (

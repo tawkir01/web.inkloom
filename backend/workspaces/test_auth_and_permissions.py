@@ -65,16 +65,32 @@ class AuthenticationAndPermissionTests(TestCase):
         self.assertEqual(response.data['memberships'][0]['workspace_name'], 'EcoVolt Workspace')
         self.assertEqual(response.data['memberships'][0]['role'], 'CONTENT_CREATOR')
 
-    def test_login_without_password_succeeds_for_known_user(self):
-        """Username-only login remains valid when no password is supplied."""
+    def test_login_with_invalid_password_is_rejected(self):
+        """A valid username does not issue a token without its matching password."""
         response = self.client.post('/api/auth/login/', {
             'username': 'creator_a',
             'password': 'WrongPassword!'
         }, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('token', response.data)
-        self.assertEqual(response.data['user']['username'], 'creator_a')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn('token', response.data)
+
+    def test_login_without_password_is_rejected(self):
+        response = self.client.post('/api/auth/login/', {
+            'username': 'creator_a',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn('token', response.data)
+
+    def test_login_with_non_text_credentials_is_rejected(self):
+        response = self.client.post('/api/auth/login/', {
+            'username': ['creator_a'],
+            'password': 'SecurePasswordA1!',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn('token', response.data)
 
     def test_login_unknown_user_returns_401(self):
         """Unknown usernames are rejected even when the frontend sends a password."""

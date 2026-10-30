@@ -6,7 +6,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import LoginPage from './components/LoginPage';
+import PublicDemoView from './components/PublicDemoView';
 import Navbar from './components/Navbar';
 import WorkspacesView from './components/WorkspacesView';
 import BrandKnowledgeView from './components/BrandKnowledgeView';
@@ -20,19 +20,8 @@ function MainApp() {
   const canSubmitContent = ['CONTENT_CREATOR', 'AGENCY_ADMIN'].includes(currentWorkspace?.role);
   const page = activePage === 'submit' && !canSubmitContent ? 'dashboard' : activePage;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#070B14] flex items-center justify-center text-slate-400">
-        <div className="flex items-center space-x-3">
-          <div className="w-5 h-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-sm">Verifying session with Inkloom Guardian API...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <LoginPage />;
+  if (loading || !isAuthenticated) {
+    return <PublicDemoView />;
   }
 
   return (

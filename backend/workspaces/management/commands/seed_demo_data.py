@@ -10,6 +10,21 @@ User = get_user_model()
 class Command(BaseCommand):
     help = "Seeds clearly labelled fictional demo data for EcoVolt, PureNest, and FinEdge"
 
+    def get_demo_user(self, username, email, first_name, last_name):
+        user, _ = User.objects.get_or_create(
+            username=username,
+            defaults={
+                "email": email,
+                "first_name": first_name,
+                "last_name": last_name,
+            },
+        )
+        user.set_unusable_password()
+        user.is_staff = False
+        user.is_superuser = False
+        user.save(update_fields=["password", "is_staff", "is_superuser"])
+        return user
+
     def handle(self, *args, **options):
         self.stdout.write(self.style.NOTICE("Seeding fictional demo data for Inkloom Guardian..."))
 
@@ -19,35 +34,11 @@ class Command(BaseCommand):
             defaults={"description": "Demonstration agency holding multiple client workspaces"}
         )
 
-        # 2. Create Users for Each Role
-        admin_user, _ = User.objects.get_or_create(
-            username="agency_admin",
-            defaults={"email": "admin@aurademo.com", "first_name": "Alex", "last_name": "Admin"}
-        )
-        admin_user.set_password("AdminPass123!")
-        admin_user.is_staff = True
-        admin_user.save()
-
-        creator_user, _ = User.objects.get_or_create(
-            username="content_creator",
-            defaults={"email": "creator@aurademo.com", "first_name": "Casey", "last_name": "Creator"}
-        )
-        creator_user.set_password("CreatorPass123!")
-        creator_user.save()
-
-        manager_user, _ = User.objects.get_or_create(
-            username="account_manager",
-            defaults={"email": "manager@aurademo.com", "first_name": "Morgan", "last_name": "Manager"}
-        )
-        manager_user.set_password("ManagerPass123!")
-        manager_user.save()
-
-        reviewer_user, _ = User.objects.get_or_create(
-            username="brand_reviewer",
-            defaults={"email": "reviewer@aurademo.com", "first_name": "Riley", "last_name": "Reviewer"}
-        )
-        reviewer_user.set_password("ReviewerPass123!")
-        reviewer_user.save()
+        # 2. Create non-login users to attribute illustrative records and events
+        admin_user = self.get_demo_user("agency_admin", "admin@aurademo.com", "Alex", "Admin")
+        creator_user = self.get_demo_user("content_creator", "creator@aurademo.com", "Casey", "Creator")
+        manager_user = self.get_demo_user("account_manager", "manager@aurademo.com", "Morgan", "Manager")
+        reviewer_user = self.get_demo_user("brand_reviewer", "reviewer@aurademo.com", "Riley", "Reviewer")
 
         # 3. Workspaces
         # Client A: EcoVolt (Energy Solutions)
@@ -250,8 +241,3 @@ class Command(BaseCommand):
         )
 
         self.stdout.write(self.style.SUCCESS("Successfully seeded fictional demo data!"))
-        self.stdout.write("Credentials created:")
-        self.stdout.write("  Admin: agency_admin / AdminPass123!")
-        self.stdout.write("  Creator: content_creator / CreatorPass123!")
-        self.stdout.write("  Manager: account_manager / ManagerPass123!")
-        self.stdout.write("  Reviewer: brand_reviewer / ReviewerPass123!")

@@ -1,7 +1,7 @@
 from rest_framework import status, views, viewsets, permissions
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
-from django.contrib.auth import get_user_model, login, logout
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.shortcuts import get_object_or_404
 from .models import ClientWorkspace, WorkspaceMembership
 from .serializers import (
@@ -23,25 +23,27 @@ class LoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        username = request.data.get('username', '').strip()
+        username = request.data.get('username', '')
+        password = request.data.get('password', '')
 
-        if not username:
+        if not isinstance(username, str) or not isinstance(password, str):
             return Response(
-                {"detail": "Please provide a username."},
+                {"detail": "Username and password must be text values."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        user = User.objects.filter(username=username).first()
-        if not user:
+        username = username.strip()
+        if not username or not password:
             return Response(
-                {"detail": "Invalid credentials. Please verify your username."},
-                status=status.HTTP_401_UNAUTHORIZED
+                {"detail": "Please provide both a username and password."},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        if not user.is_active:
+        user = authenticate(request, username=username, password=password)
+        if not user:
             return Response(
-                {"detail": "This account is inactive. Please contact your agency administrator."}, 
-                status=status.HTTP_403_FORBIDDEN
+                {"detail": "Invalid username or password."},
+                status=status.HTTP_401_UNAUTHORIZED
             )
 
         login(request, user)

@@ -10,6 +10,12 @@
 3. Every human approval or rejection is bound to an immutable content version snapshot.
 4. Multi-client workspaces are strictly isolated at the database and query levels.
 
+### Public demonstration and authenticated workspaces
+
+The frontend root (`/`) opens a public product landing page and interactive demonstration without requesting an account or contacting private workspace APIs. Dashboard metrics, brands, review activity, evidence, and workflow history are illustrative sample data; the content checker is a local simulation, not a live AI service. Demo interactions stay in the browser and do not write to the backend.
+
+The existing authenticated workspace modules are retained and render only when an authenticated session is validated. The current frontend does not publish a dedicated workspace sign-in route; add and security-test that route before directing authorized users to it. Do not expose private modules as public routes or weaken backend permissions. Login now requires a valid username and password, and frontend auth tokens are held in `sessionStorage` rather than persistent `localStorage`.
+
 AI analysis is optional. With `AI_PROVIDER=mock` or no API key, reviews run deterministic checks only. When configured for `openai`, `anthropic`, or `gemini`, the backend can send submitted text and current workspace-approved claims and source passages to that provider. Provider usage can incur charges. The deterministic layer remains independent, and a provider failure is reported separately without hiding successful deterministic results. Word overlap is not treated as proof that a claim is supported; the pipeline returns `UNABLE_TO_DETERMINE` when source wording only overlaps without an exact passage match.
 
 ### Evidence-linked claim review
@@ -130,7 +136,7 @@ inkloom web/
    python manage.py migrate
    python manage.py seed_demo_data
    ```
-   The seed command creates the fictional demo role accounts, workspaces, and a sample EcoVolt review item. It is safe to run again to restore demo data.
+   The seed command creates fictional workspace records and non-login users used only to attribute sample records. Those users have unusable passwords and no staff privileges; no demo credentials are created or displayed. The public frontend demo does not run this command or access these records.
 
 3. **Install Frontend Dependencies**:
    ```bash
@@ -163,12 +169,9 @@ inkloom web/
    - Open browser at `http://localhost:5173/stackinkloom/`.
    - The frontend automatically proxies `/api/*` requests to `http://127.0.0.1:8000`.
 
-### Demo role access
+### Authorized workspace access
 
-The login screen's demo role cards sign in directly. Each role uses the same workspace interface, with actions shown according to its permissions:
-- **Content Creator** and **Agency Admin** can submit content and create revisions.
-- **Brand Reviewer** and **Agency Admin** can record approval decisions.
-- **Account Manager** can follow the shared review queue and add coordination comments, but cannot submit or approve content.
+The public visitor flow is available immediately and does not include demo logins. The existing workspace modules require a valid authenticated session and remain protected by backend permissions. A dedicated, security-tested sign-in route is not currently published; do not share demo credentials or expose those modules publicly.
 
 ## Environment and production deployment
 
@@ -178,7 +181,7 @@ Copy `.env.example` to `.env` for local development. In production, supply envir
 - Set `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS` to the actual frontend origin(s). Do not use wildcard origins with credentials.
 - Keep HTTPS enabled. `SECURE_SSL_REDIRECT`, secure cookies, and HSTS default on when `DEBUG=False`; only set `USE_X_FORWARDED_PROTO=True` when the trusted hosting proxy sets that header.
 - Configure database connection variables on the backend host if using PostgreSQL. Never put database credentials or AI keys in `frontend/` or a `VITE_*` variable.
-- `VITE_API_BASE_URL` is a public frontend build-time setting for the backend origin. The existing GitHub Pages base path remains `/stackinkloom/`.
+- `VITE_API_BASE_URL` is a public frontend build-time setting for the backend origin. The frontend is configured to run at the domain root for Vercel.
 - `AI_PROVIDER`, `AI_API_KEY`, and `AI_MODEL_NAME` configure optional backend analysis. Supported provider identifiers are `mock`, `openai`, `anthropic`, and `gemini`; use `mock` when no provider call should be made. The OCR setting remains reserved; no OCR adapter is currently configured.
 - Keep `AI_API_KEY` on the backend host only. Live reviews send submitted copy and the active workspace's approved claims and valid evidence passages to the selected provider; review each provider's data-retention and pricing terms before enabling it.
 
